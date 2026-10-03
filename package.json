@@ -1,0 +1,29 @@
+{
+  "name": "doggin-around",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check src tests",
+    "test": "vitest run tests/unit",
+    "test:e2e": "blender --background --python tests/create-rig.py && playwright test"
+  },
+  "dependencies": {
+    "@sparkjsdev/spark": "^2.3.1",
+    "three": "0.180.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.15",
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^26.6.4",
+    "@types/pngjs": "^6.0.5",
+    "@types/three": "0.180.0",
+    "pngjs": "^7.0.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.2",
+    "vitest": "^5.0.3"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "armature": "Armature",
+  "root": "joint_23",
+  "torso": ["joint_22", "joint_21", "joint_20", "joint_14"],
+  "head": "joint_17",
+  "tail": "joint_26",
+  "forward": [0, 1, 0],
+  "up": [0, 0, 1],
+  "spin_pivot": [0, -0.04, 0.09037915],
+  "legs": [
+    {"name": "front_positive_x", "upper": "joint_1", "lower": "joint_0", "foot": "joint_4", "phase": 0},
+    {"name": "front_negative_x", "upper": "joint_30", "lower": "joint_40", "foot": "joint_34", "phase": 1},
+    {"name": "back_positive_x", "upper": "joint_6", "lower": "joint_5", "foot": "joint_7", "phase": 1},
+    {"name": "back_negative_x", "upper": "joint_36", "lower": "joint_35", "foot": "joint_37", "phase": 0}
+  ]
+}

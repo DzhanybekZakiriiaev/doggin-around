@@ -1,0 +1,28 @@
+{
+  "generated_at": "2026-10-03T23:42:43.918354+00:00",
+  "anigen_revision": "c49db3d6b466537a02ccf2286688903d77af7e4f",
+  "pytorch_version": "2.4.0+cu118",
+  "cuda_runtime": "11.8",
+  "gpu": "NVIDIA GeForce RTX 3090",
+  "seed": 42,
+  "command": [
+    "python",
+    "example.py",
+    "--image_path",
+    "/workspace/huawei-dog-fullbody.png",
+    "--output_dir",
+    "/workspace/dog-output",
+    "--output_name",
+    "dog",
+    "--seed",
+    "42"
+  ],
+  "models": [
+    "ss_flow_solo",
+    "slat_flow_auto"
+  ],
+  "attention": {
+    "dense": "sdpa",
+    "sparse": "xformers"
+  }
+}
