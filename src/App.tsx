@@ -216,49 +216,122 @@ function GameCTA({
   );
 }
 
-function UploadZone({
-  onFile,
-}: {
-  onFile: (file: File) => void;
-}) {
+type ComicFile = {
+  url: string;
+  name: string;
+  isImage: boolean;
+};
+
+// Click-to-browse plus drag-and-drop for a single file
+function useFileDrop(accepts: (file: File) => boolean, onFile: (file: File) => void) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
-
-  const drop = (event: DragEvent<HTMLButtonElement>) => {
-    event.preventDefault();
-    setDragging(false);
-    const file = event.dataTransfer.files[0];
-    if (file?.type.startsWith("image/")) onFile(file);
+  const take = (file: File | undefined) => {
+    if (file && accepts(file)) onFile(file);
   };
+  return {
+    dragging,
+    open: () => inputRef.current?.click(),
+    dropProps: {
+      onDragEnter: () => setDragging(true),
+      onDragLeave: () => setDragging(false),
+      onDragOver: (event: DragEvent<HTMLElement>) => event.preventDefault(),
+      onDrop: (event: DragEvent<HTMLElement>) => {
+        event.preventDefault();
+        setDragging(false);
+        take(event.dataTransfer.files[0]);
+      },
+    },
+    inputProps: {
+      ref: inputRef,
+      className: "visually-hidden",
+      type: "file",
+      tabIndex: -1,
+      onChange: (event: ChangeEvent<HTMLInputElement>) => {
+        take(event.target.files?.[0]);
+        event.target.value = "";
+      },
+    },
+  };
+}
+
+const isImage = (file: File) => file.type.startsWith("image/");
+
+function UploadZone({
+  preview,
+  onFile,
+}: {
+  preview: string;
+  onFile: (file: File) => void;
+}) {
+  const { dragging, open, dropProps, inputProps } = useFileDrop(isImage, onFile);
 
   return (
     <>
       <button
         className={`upload-zone ${dragging ? "upload-zone--dragging" : ""}`}
-        onClick={() => inputRef.current?.click()}
-        onDragEnter={() => setDragging(true)}
-        onDragLeave={() => setDragging(false)}
-        onDragOver={(event) => event.preventDefault()}
-        onDrop={drop}
+        onClick={open}
         type="button"
+        {...dropProps}
       >
-        <span className="upload-burst">
-          <Icon name="upload" size={31} />
-        </span>
-        <strong>DRAG &amp; DROP A PHOTO HERE</strong>
+        {preview ? (
+          <img alt="Your dog photo" className="upload-thumb" src={preview} />
+        ) : (
+          <span className="upload-burst">
+            <Icon name="upload" size={31} />
+          </span>
+        )}
+        <strong>{preview ? "DOG PHOTO ADDED" : "DRAG & DROP A PHOTO HERE"}</strong>
         <span className="file-type">JPG / PNG</span>
-        <span className="upload-tip">Best with a clear, full-body photo</span>
+        <span className="upload-tip">
+          {preview ? "Click or drop a new photo to replace it" : "Best with a clear, full-body photo"}
+        </span>
       </button>
-      <input
-        ref={inputRef}
-        accept="image/jpeg,image/png"
-        className="visually-hidden"
-        onChange={(event: ChangeEvent<HTMLInputElement>) => {
-          const file = event.target.files?.[0];
-          if (file) onFile(file);
-        }}
-        type="file"
-      />
+      <input accept="image/jpeg,image/png" {...inputProps} />
+    </>
+  );
+}
+
+function ComicDrop({ comic, onFile }: { comic: ComicFile | null; onFile: (file: File) => void }) {
+  const { dragging, open, dropProps, inputProps } = useFileDrop(
+    (file) => isImage(file) || file.type === "application/pdf",
+    onFile,
+  );
+
+  return (
+    <>
+      <button
+        aria-label={comic ? `Replace your comic (${comic.name})` : "Upload a comic"}
+        className={`photo-frame ${comic ? "photo-frame--loaded" : ""} ${dragging ? "photo-frame--dragging" : ""}`}
+        onClick={open}
+        type="button"
+        {...dropProps}
+      >
+        <div className="photo-frame__inner">
+          {comic?.isImage ? (
+            <>
+              <img alt={`Your comic: ${comic.name}`} src={comic.url} />
+              <span className="scan-line" />
+            </>
+          ) : comic ? (
+            <div className="comic-file">
+              <Icon name="upload" size={34} />
+              <strong>COMIC LOADED</strong>
+              <small>{comic.name}</small>
+            </div>
+          ) : (
+            <img
+              alt="Comic: a cheerful dog says “Upload a comic here” while a dog in glasses replies “I’m waiting…”"
+              className="photo-placeholder"
+              src="/upload-placeholder.png"
+            />
+          )}
+          <span className="photo-frame__cta">
+            <Icon name="upload" size={16} /> {comic ? "REPLACE COMIC" : "CLICK OR DROP YOUR COMIC"}
+          </span>
+        </div>
+      </button>
+      <input accept="image/*,application/pdf" {...inputProps} />
     </>
   );
 }
@@ -374,11 +447,15 @@ function TopBar({ screen }: { screen: number }) {
 
 function UploadScreen({
   dogImage,
+  comic,
   onFile,
+  onComic,
   onNext,
 }: {
   dogImage: string;
+  comic: ComicFile | null;
   onFile: (file: File) => void;
+  onComic: (file: File) => void;
   onNext: () => void;
 }) {
   const spatial = useSpatialPointer();
@@ -402,7 +479,7 @@ function UploadScreen({
             subtitle="Bring your dog into the game."
             title="UPLOAD YOUR DOG"
           />
-          <UploadZone onFile={receiveFile} />
+          <UploadZone onFile={receiveFile} preview={dogImage} />
           <div className="upload-actions">
             <GameCTA onClick={onNext}>BRING THEM TO LIFE</GameCTA>
           </div>
@@ -418,22 +495,7 @@ function UploadScreen({
           </div>
           <div aria-hidden="true" className="photo-speed-lines" />
           <span className="scribble scribble--one">YOUR DOG</span>
-          <div className="photo-frame">
-            <div className="photo-frame__inner">
-              {dogImage ? (
-                <>
-                  <img alt="Your dog ready to become a game character" src={dogImage} />
-                  <span className="scan-line" />
-                </>
-              ) : (
-                <img
-                  alt="Comic: a cheerful dog says “Upload a comic here” while a dog in glasses replies “I’m waiting…”"
-                  className="photo-placeholder"
-                  src="/upload-placeholder.png"
-                />
-              )}
-            </div>
-          </div>
+          <ComicDrop comic={comic} onFile={onComic} />
           <div className="transform-arrow">
             <span>PHOTO</span>
             <Icon name="arrow" size={25} />
@@ -627,6 +689,7 @@ export default function App() {
   const [screen, setScreen] = useState(1);
   const [wipeTo, setWipeTo] = useState<number | null>(null);
   const [dogImage, setDogImage] = useState("");
+  const [comic, setComic] = useState<ComicFile | null>(null);
   const [dogName, setDogName] = useState("");
   const displayName = dogName.trim() || "YOUR DOG";
   const [quest, setQuest] = useState(QUESTS[0]);
@@ -644,12 +707,18 @@ export default function App() {
   };
 
   const setFile = (file: File) => {
+    if (dogImage) URL.revokeObjectURL(dogImage);
     setDogImage(URL.createObjectURL(file));
+  };
+
+  const setComicFile = (file: File) => {
+    if (comic) URL.revokeObjectURL(comic.url);
+    setComic({ url: URL.createObjectURL(file), name: file.name, isImage: isImage(file) });
   };
 
   return (
     <main className={`game-shell screen-${screen}`}>
-      {screen === 1 && <UploadScreen dogImage={dogImage} onFile={setFile} onNext={next} />}
+      {screen === 1 && <UploadScreen comic={comic} dogImage={dogImage} onComic={setComicFile} onFile={setFile} onNext={next} />}
       {screen === 2 && (
         <QuestHub
           dogImage={dogImage}
