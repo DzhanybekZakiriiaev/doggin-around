@@ -1,0 +1,2 @@
+# Biome formats with LF. Without this, a Windows checkout fails `pnpm lint`.
+* text=auto eol=lf

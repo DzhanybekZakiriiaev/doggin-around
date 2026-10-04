@@ -3,6 +3,16 @@ import * as THREE from "three"
 import { OrbitControls } from "three/addons/controls/OrbitControls.js"
 import { DOG_ACTIONS, Dog, type DogAction, type DogView } from "./dog"
 import { FetchInteraction } from "./fetch"
+import {
+  CommandStream,
+  parseUtterance,
+  type VoiceCommand,
+} from "./voice/commands"
+import {
+  type ScribePhase,
+  ScribeSession,
+  speechSupported,
+} from "./voice/scribe"
 import "./style.css"
 
 const app = document.querySelector<HTMLDivElement>("#app")
@@ -14,6 +24,7 @@ app.innerHTML = `
       <div class="scene-heading"><span class="eyebrow">01 / THE PLAYGROUND</span><h1>A little dog. A whole new dimension.</h1><p>Built from a photo. Brought to life in splats.</p></div>
       <div id="viewport" aria-label="Interactive 3D dog viewer"></div>
       <div class="scene-footer"><span><i class="live-dot"></i> <span id="render-status">Preparing your dog</span></span><span id="fetch-status">CLICK THE FLOOR TO PLAY FETCH <b>·</b> DRAG TO ORBIT</span></div>
+      <div id="speech-bubble" aria-live="polite" hidden><span id="speech-text"></span><em id="speech-note"></em><i class="speech-dots" aria-hidden="true"><b class="speech-dot"></b><b class="speech-dot"></b><b class="speech-dot"></b></i></div>
       <div id="notice" role="status">Loading the animated dog…</div>
     </section>
     <aside>
@@ -24,6 +35,9 @@ app.innerHTML = `
       <div class="section-label">GIVE IT SOMETHING TO DO</div>
       <div class="actions" role="group" aria-label="Dog actions">${DOG_ACTIONS.map(({ name, label, icon }) => `<button type="button" data-action="${name}" aria-pressed="${name === "idle"}" class="${name === "idle" ? "selected" : ""}"><span class="action-icon" aria-hidden="true">${icon}</span>${label}</button>`).join("")}</div>
       <button type="button" id="fetch-demo" class="fetch-invite">◌ Toss the ball <span>or click the playground</span></button>
+      <div class="section-label">OR JUST TELL IT</div>
+      <button type="button" id="talk" class="talk"><kbd>V</kbd><span><strong>Hold to talk</strong><small id="voice-status">Voice control is off</small></span><i class="talk-wave" aria-hidden="true"><b></b><b></b><b></b><b></b></i></button>
+      <p class="talk-examples" id="talk-hint">Say “sit”, “spin around”, “good boy”, or “go fetch”.</p>
       <div class="transport"><button type="button" id="pause">Pause</button><button type="button" id="reset">Reset pose</button><span id="action-status">IDLE</span></div>
       <div class="section-label">TAKE A CLOSER LOOK</div>
       <div class="view-tabs" role="group" aria-label="Rendering mode"><button type="button" data-view="splats" class="selected">Splats</button><button type="button" data-view="mesh">Mesh</button><button type="button" data-view="skeleton">Skeleton</button></div>
@@ -80,6 +94,7 @@ const dog = new Dog()
 scene.add(dog.group)
 const fetchPlay = new FetchInteraction(dog, scene, camera, viewport)
 const barkAudio = element<HTMLAudioElement>("bark-audio")
+const voiceReady = speechSupported()
 let barkElapsed = 0
 let barksRemaining = 0
 
@@ -111,6 +126,11 @@ function busy(value: boolean): void {
       const action = button.dataset.action as DogAction | undefined
       const unavailable =
         action !== undefined && !dog.availableActions.includes(action)
+      if (button.id === "talk") {
+        button.hidden = !voiceReady
+        button.disabled = !voiceReady || value || !loaded
+        return
+      }
       button.hidden = loaded && unavailable
       button.disabled =
         value ||
@@ -154,25 +174,51 @@ async function loadDog(url: string, name = "Huawei's dog"): Promise<void> {
   }
 }
 
+function resume(): void {
+  dog.paused = false
+  element("pause").textContent = "Pause"
+}
+
+/** The one path every action takes, whether clicked or spoken. */
+function performAction(action: DogAction): boolean {
+  if (!dog.availableActions.includes(action)) return false
+  stopBark()
+  fetchPlay.stop()
+  resume()
+  dog.playAction(action)
+  if (action === "bark") {
+    barksRemaining = 2
+    playBark()
+  }
+  return true
+}
+
+function tossBall(): boolean {
+  stopBark()
+  return fetchPlay.throwTo(new THREE.Vector3(1.8, 0, -1.5))
+}
+
+function settle(): void {
+  stopBark()
+  fetchPlay.stop()
+  resume()
+}
+
+function comeHome(): void {
+  stopBark()
+  fetchPlay.reset()
+  resume()
+  dog.playAction("idle")
+}
+
 document
   .querySelectorAll<HTMLButtonElement>("[data-action]")
   .forEach((button) => {
     button.addEventListener("click", () => {
-      stopBark()
-      fetchPlay.stop()
-      dog.paused = false
-      element("pause").textContent = "Pause"
-      dog.playAction(button.dataset.action as DogAction)
-      if (button.dataset.action === "bark") {
-        barksRemaining = 2
-        playBark()
-      }
+      performAction(button.dataset.action as DogAction)
     })
   })
-element("fetch-demo").addEventListener("click", () => {
-  stopBark()
-  fetchPlay.throwTo(new THREE.Vector3(1.8, 0, -1.5))
-})
+element("fetch-demo").addEventListener("click", tossBall)
 document
   .querySelectorAll<HTMLButtonElement>("[data-view]")
   .forEach((button) => {
@@ -192,11 +238,7 @@ element("pause").addEventListener("click", () => {
   element("pause").textContent = dog.paused ? "Resume" : "Pause"
 })
 element("reset").addEventListener("click", () => {
-  stopBark()
-  fetchPlay.reset()
-  dog.paused = false
-  element("pause").textContent = "Pause"
-  dog.playAction("idle")
+  comeHome()
   controls.reset()
 })
 const density = element<HTMLInputElement>("density")
@@ -235,6 +277,153 @@ element<HTMLInputElement>("model-upload").addEventListener(
     element<HTMLInputElement>("model-upload").value = ""
   },
 )
+const talk = element<HTMLButtonElement>("talk")
+const bubble = element("speech-bubble")
+const commands = new CommandStream()
+let holding = false
+let obeyed = false
+let explained = false
+let bubbleTimer: ReturnType<typeof setTimeout> | undefined
+
+const PHASE_LABELS: Record<ScribePhase, string> = {
+  offline: "RECONNECTING…",
+  connecting: "CONNECTING…",
+  ready: "HOLD V TO TALK",
+  listening: "LISTENING…",
+  error: "VOICE CONTROL IS OFF",
+}
+const DEFAULT_HINT = element("talk-hint").textContent ?? ""
+
+function status(text: string): void {
+  element("voice-status").textContent = text
+}
+
+function showSpeech(text: string, note: string, settled: boolean): void {
+  clearTimeout(bubbleTimer)
+  element("speech-text").textContent = text
+  element("speech-note").textContent = note
+  bubble.hidden = false
+  bubble.classList.toggle("settled", settled)
+  bubble.classList.toggle("empty", text.length === 0 && note.length === 0)
+  if (!settled) return
+  bubbleTimer = setTimeout(() => {
+    bubble.hidden = true
+  }, 3200)
+}
+
+function obey(command: VoiceCommand): void {
+  if (command.kind === "action" && !performAction(command.action)) {
+    const label = DOG_ACTIONS.find(({ name }) => name === command.action)?.label
+    missed(`This dog has no ${(label ?? command.action).toLowerCase()} clip.`)
+    return
+  }
+  if (command.kind === "fetch" && !tossBall()) {
+    missed("There is nothing to fetch with yet.")
+    return
+  }
+  if (command.kind === "come") comeHome()
+  if (command.kind === "stop") settle()
+  obeyed = true
+}
+
+function missed(note: string): void {
+  explained = true
+  showSpeech(element("speech-text").textContent ?? "", note, true)
+}
+
+/**
+ * Runs on partial transcripts as well as the final one, so "sit" lands while
+ * the key is still held. `CommandStream` keeps the commit from repeating what
+ * a partial already fired.
+ */
+function handleTranscript(text: string, settled: boolean): void {
+  showSpeech(text, "", settled)
+  for (const command of commands.next(text)) obey(command)
+  if (!settled) return
+  commands.reset()
+  if (obeyed || explained) return
+  // Layer 2 would take the committed transcript from here. Until it exists,
+  // say which kind of miss this was rather than leaving the dog silent.
+  const spoken = text.trim()
+  missed(
+    spoken.length === 0
+      ? "I didn't hear anything."
+      : parseUtterance(spoken).escalate
+        ? "That is not a keyword yet."
+        : "No clip matches that.",
+  )
+}
+
+const scribe = new ScribeSession({
+  onPartial: (text) => handleTranscript(text, false),
+  onCommitted: (text) => handleTranscript(text, true),
+  onMiss: () => missed("I didn't hear anything."),
+  onPhase: (phase, detail) => {
+    status(PHASE_LABELS[phase])
+    element("talk-hint").textContent = detail ?? DEFAULT_HINT
+    talk.classList.toggle("live", phase === "listening")
+    talk.classList.toggle("broken", phase === "error")
+  },
+})
+
+/** True for fields that would swallow the key. Sliders and file pickers do not. */
+function typing(target: EventTarget | null): boolean {
+  if (target instanceof HTMLTextAreaElement) return true
+  if (target instanceof HTMLElement && target.isContentEditable) return true
+  return (
+    target instanceof HTMLInputElement &&
+    !["range", "file", "checkbox", "radio", "button"].includes(target.type)
+  )
+}
+
+/** Per-hold bookkeeping, kept apart from the microphone so tests can drive it. */
+function beginHold(): void {
+  obeyed = false
+  explained = false
+  commands.reset()
+  showSpeech("", "", false)
+}
+
+async function startTalking(): Promise<void> {
+  if (holding || talk.disabled) return
+  holding = true
+  beginHold()
+  await scribe.hold()
+  if (!holding) scribe.release()
+}
+
+function stopTalking(): void {
+  if (!holding) return
+  holding = false
+  scribe.release()
+  if (bubble.classList.contains("empty")) bubble.hidden = true
+}
+
+if (voiceReady) {
+  talk.addEventListener("pointerdown", (event) => {
+    event.preventDefault()
+    void startTalking()
+  })
+  window.addEventListener("pointerup", stopTalking)
+  window.addEventListener("pointercancel", stopTalking)
+  window.addEventListener("keydown", (event) => {
+    if (event.code !== "KeyV" || event.repeat) return
+    if (event.metaKey || event.ctrlKey || event.altKey) return
+    if (typing(event.target)) return
+    event.preventDefault()
+    void startTalking()
+  })
+  window.addEventListener("keyup", (event) => {
+    if (event.code === "KeyV") stopTalking()
+  })
+  window.addEventListener("blur", stopTalking)
+  void scribe.connect().catch(() => undefined)
+} else {
+  talk.hidden = true
+  element("talk-hint").textContent =
+    "This browser cannot reach a microphone, so voice control is off."
+}
+
 const observer = new ResizeObserver(() => {
   const { width, height } = viewport.getBoundingClientRect()
   renderer.setSize(width, height)
@@ -303,6 +492,8 @@ renderer.setAnimationLoop(() => {
 })
 window.addEventListener("pagehide", () => {
   stopBark()
+  clearTimeout(bubbleTimer)
+  scribe.dispose()
   observer.disconnect()
   renderer.setAnimationLoop(null)
   fetchPlay.dispose()
@@ -320,5 +511,13 @@ window.addEventListener("pagehide", () => {
   renderer.dispose()
 })
 // Expose the same controller for integration and browser verification.
-Object.assign(window, { dogSandbox: { dog, loadDog, renderer, fetchPlay } })
+Object.assign(window, {
+  dogSandbox: {
+    dog,
+    loadDog,
+    renderer,
+    fetchPlay,
+    voice: { hold: beginHold, transcript: handleTranscript },
+  },
+})
 void loadDog(currentUrl)

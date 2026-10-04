@@ -1,12 +1,6 @@
 import { expect, test } from "@playwright/test"
 import { PNG } from "pngjs"
-import type { Dog } from "../../src/dog"
-
-declare global {
-  interface Window {
-    dogSandbox: { dog: Dog; loadDog: (url: string) => Promise<void> }
-  }
-}
+import "./sandbox"
 
 test.beforeEach(async ({ page }) => {
   await page.route("**/models/dog-animated.glb", (route) =>

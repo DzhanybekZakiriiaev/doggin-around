@@ -1,6 +1,6 @@
 # Doggin Around
 
-A local studio for Huawei's challenge dog, rendered as animated Gaussian splats. The dog has 11 selectable actions and can chase a ball across the browser playground.
+A local studio for Huawei's challenge dog, rendered as animated Gaussian splats. The dog has 11 selectable actions, can chase a ball across the browser playground, and takes spoken commands through push-to-talk.
 
 The default asset is `public/models/dog-animated.glb`. The earlier AniGen example dog remains available at `public/models/example-dog-animated.glb` for comparison. Both are editable through their saved Blender projects.
 
@@ -27,7 +27,7 @@ pnpm dev
 
 Open http://localhost:5173. Choose Idle, Walk, Run, Sit, Jump, Bark, Paw, Spin, Play bow, Sniff, or Wag. Walk, Run, Sniff, Wag, and Idle loop. Sit holds its final pose. The other actions play once and return to Idle. Bark plays a short dog sound three times in step with the visible recoil.
 
-Click the playground floor or press Toss the ball to play fetch. The dog turns toward the ball, walks or runs after it based on distance, carries it home, and resumes idle. Drag to orbit, scroll to zoom, or switch to Mesh and Skeleton to inspect the asset. Density changes rebuild the splats and return to idle. Walk and Run play in place so the host scene can control travel independently.
+Hold `V`, or press and hold the Hold to talk button, and say "sit", "spin around", "good boy", or "go fetch". Voice control needs an ElevenLabs key; see Voice control below. Click the playground floor or press Toss the ball to play fetch. The dog turns toward the ball, walks or runs after it based on distance, carries it home, and resumes idle. Drag to orbit, scroll to zoom, or switch to Mesh and Skeleton to inspect the asset. Density changes rebuild the splats and return to idle. Walk and Run play in place so the host scene can control travel independently.
 
 ```sh
 pnpm typecheck
@@ -38,6 +38,43 @@ pnpm test:e2e
 ```
 
 Browser tests use a small known rig for most controls and load both generated dogs for motion checks. They run installed Google Chrome with WebGL.
+
+## Voice control
+
+Copy `.env.example` to `.env`, add an [ElevenLabs API key](https://elevenlabs.io/app/settings/api-keys), and restart the dev server:
+
+```sh
+cp .env.example .env
+pnpm dev
+```
+
+Hold `V` and speak. The studio shows the live transcript in a comic speech bubble and the dog reacts as the words arrive. Without a key the studio still runs; the Hold to talk button explains what is missing.
+
+The key stays on the machine running Vite. `vite.config.ts` adds a `POST /api/scribe-token` route that mints a [single-use realtime token](https://elevenlabs.io/docs/api-reference/tokens/create), valid for 15 minutes and consumed on use, and the browser connects with that. `loadEnv` reads the key with an empty prefix, so it is never inlined into the client bundle. The route also serves `vite preview`. Deploying the studio means porting that one route to the host.
+
+### Speech to text
+
+`src/voice/scribe.ts` streams microphone audio to [Scribe v2 Realtime](https://elevenlabs.io/docs/api-reference/speech-to-text/v-1-speech-to-text-realtime) over a WebSocket and receives partial transcripts while you speak plus a committed transcript once the segment ends.
+
+The socket opens when the page loads, so a command never pays connection time. Sessions are time limited and the token is single use, so a closed socket reconnects with a fresh token and exponential backoff.
+
+Commits are manual rather than left to the model's voice activity detection. Hands-free segmentation in a loud room lets a neighbouring conversation command the dog. `src/voice/pcm-worklet.js` collects 100 ms frames and only forwards them between key press and release, so no audio leaves the worklet while the key is up. Frames are 16 kHz mono PCM16, base64 encoded; the audio context is requested at 16 kHz and resampled in the rare case a browser refuses that rate.
+
+Keyterm prompting is not sent. The documentation disagrees over whether `scribe_v2_realtime` honours it, and the fuzzy matcher below already covers mishearings.
+
+### Words to commands
+
+`src/voice/commands.ts` is a local keyword parser with no network call, so "sit" reaches the dog in roughly the transcription latency rather than waiting for a language model. It runs on every partial transcript, not only the committed one.
+
+It lowercases the text, strips punctuation and filler words, and drops the dog's name. A phrase table maps spoken forms onto commands, longest phrase first, so "stand up" is idle while a bare "up" is a jump. Unmatched words are stemmed ("sitting", "barks") and then repaired within one edit, which turns a misheard "sid" or "set" into sit.
+
+Repairs are deliberately conservative. Every nearby keyword votes, so a word caught between two of them is dropped rather than guessed, and a keyword shorter than five letters also has to share its first sound. "park" never becomes "bark", "fun" never becomes "run", and "balk" matches nothing because it sits between bark, talk, and walk. Exact matches always beat repairs, which keeps "talk" on bark and "walk" on walk.
+
+Commands come back in spoken order, so "come here and sit" runs both. `CommandStream` tracks what a partial already fired so the committed transcript does not repeat it, and compares the new command list against the fired one, so a correction ("sit" heard, "stand up" committed) replaces the tail instead of stacking onto it.
+
+Beyond the 11 clips, "fetch" throws the ball, "stop" settles the dog, and "come here" walks it home. Praise is a tail wag.
+
+An utterance that names an object or a place the table cannot resolve is marked for escalation. That second layer, a language model turning "go grab that stick by the fireplace" into structured JSON against the panel's objects, is not built yet. For now the studio says so in the speech bubble rather than leaving the dog silent.
 
 ## Generate a dog on RunPod
 
@@ -115,11 +152,11 @@ Construct the host's `SparkRenderer` with `covSplats: true` and `accumExtSplats:
 
 Shape conversion samples triangle area, transfers barycentric skin weights, merges shared joints, and normalizes the four largest contributions. Colors come from material base color and texture UVs. The same bind matrices drive Three.js and Spark linear blend skinning. A static PLY alone cannot preserve this skeleton and animation data.
 
-Photo-upload generation, voice interpretation, narration, and webtoon world creation are later integrations.
+Voice control is wired into the studio in `src/main.ts`, not into the `Dog` class. `src/voice/commands.ts` has no browser or Three.js dependency, so a host scene can reuse the parser and map the commands onto its own behaviour. Photo-upload generation, language-model command interpretation, narration, and webtoon world creation are later integrations.
 
 ## Verified setup
 
-The Huawei export retains one textured skinned mesh, 41 joints, valid skin weights, and 11 named animation clips. The original portrait run has only 8 joints. Inspection reports for both Huawei inputs are in `outputs/huawei-fullbody-rig-inspection.json` and `outputs/huawei-direct-rig-inspection.json`. The earlier example dog's report is in `outputs/dog-rig-inspection.json`. Unit tests cover sampling, bind transforms, and fetch behavior. Chrome tests cover Gaussian rendering, controls, replacement, fetch, actions, a complete turn, and leg motion. Type checking, lint, and the production build pass.
+The Huawei export retains one textured skinned mesh, 41 joints, valid skin weights, and 11 named animation clips. The original portrait run has only 8 joints. Inspection reports for both Huawei inputs are in `outputs/huawei-fullbody-rig-inspection.json` and `outputs/huawei-direct-rig-inspection.json`. The earlier example dog's report is in `outputs/dog-rig-inspection.json`. Unit tests cover sampling, bind transforms, fetch behavior, and the voice keyword parser. Chrome tests cover Gaussian rendering, controls, replacement, fetch, actions, a complete turn, leg motion, and the spoken command path. The voice browser test drives transcripts directly, so it needs neither a microphone nor an ElevenLabs key. Type checking, lint, and the production build pass.
 
 The final Huawei dog measured 60 FPS for Idle, Walk, and Run with 50,000 splats at a 1440 by 960 Chrome viewport on the setup Mac. The median frame interval was 16.7 ms. Performance varies with device, pixel ratio, camera framing, and density. Spark's embedded runtime makes the initial JavaScript bundle relatively large, about 1.05 MB compressed.
 
@@ -133,5 +170,6 @@ Both setup pods were terminated after downloading their generated assets. The fi
 - [RunPod SSH documentation](https://docs.runpod.io/pods/configuration/use-ssh)
 - [Labrador motion-capture dataset](https://springernature.figshare.com/articles/dataset/Lifelike_Agility_and_Play_in_Quadrupedal_Robots_using_Reinforcement_Learning_and_Generative_Pre-trained_Models/24968946), CC BY 4.0
 - [Dog bark recording by Broadbeer](https://commons.wikimedia.org/wiki/File:George_vuf_1996.ogg), public domain
+- [ElevenLabs Scribe v2 Realtime](https://elevenlabs.io/docs/api-reference/speech-to-text/v-1-speech-to-text-realtime)
 
 AniGen and Spark use MIT licenses for their main code. AniGen has separately licensed dependencies. The training-only CUBVH extension is not used by this inference setup. Retain upstream license and attribution records for generated assets and dependencies.

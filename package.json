@@ -7,7 +7,7 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "lint": "biome check src tests",
+    "lint": "biome check src tests vite.config.ts",
     "test": "vitest run tests/unit",
     "test:e2e": "blender --background --python tests/create-rig.py && playwright test"
   },

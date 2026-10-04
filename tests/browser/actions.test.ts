@@ -1,37 +1,6 @@
-import { readFileSync } from "node:fs"
 import { expect, test } from "@playwright/test"
-import { DOG_ACTIONS, type DogAction } from "../../src/dog"
-
-const loopingActions = new Set<DogAction>([
-  "idle",
-  "walk",
-  "run",
-  "sniff",
-  "wag",
-])
-
-function rigWithActions(names: readonly DogAction[]): Buffer {
-  const source = readFileSync("work/test-rig.glb")
-  const jsonLength = source.readUInt32LE(12)
-  const data = JSON.parse(source.subarray(20, 20 + jsonLength).toString()) as {
-    animations: { name: string }[]
-  }
-  const clips = new Map(data.animations.map((clip) => [clip.name, clip]))
-  data.animations = names.map((name) => {
-    const clip = clips.get(
-      name === "idle" ? "idle" : loopingActions.has(name) ? "walk" : "spin",
-    )
-    if (!clip) throw new Error("The known rig is missing its test clips")
-    return { ...structuredClone(clip), name }
-  })
-  const json = Buffer.from(JSON.stringify(data))
-  const padding = Buffer.alloc((4 - (json.length % 4)) % 4, 0x20)
-  const header = Buffer.from(source.subarray(0, 20))
-  const binary = source.subarray(20 + jsonLength)
-  header.writeUInt32LE(20 + json.length + padding.length + binary.length, 8)
-  header.writeUInt32LE(json.length + padding.length, 12)
-  return Buffer.concat([header, json, padding, binary])
-}
+import { DOG_ACTIONS } from "../../src/dog"
+import { loopingActions, rigWithActions } from "./sandbox"
 
 test.beforeEach(async ({ page }) => {
   await page.route("**/models/dog-animated.glb", (route) =>

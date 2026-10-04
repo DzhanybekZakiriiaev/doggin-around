@@ -422,6 +422,209 @@ footer {
   color: #a2aa95;
   font-size: 8px;
 }
+.talk {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #d5dcc8;
+  border-radius: 10px;
+  background: #f3f5ea;
+  text-align: left;
+  user-select: none;
+  touch-action: none;
+}
+.talk[hidden] {
+  display: none;
+}
+.talk kbd {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 29px;
+  height: 29px;
+  border: 1px solid #c9d3b6;
+  border-radius: 7px;
+  background: #fdfdf8;
+  box-shadow: 0 2px 0 #cdd6bd;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  color: #4a5f38;
+}
+.talk > span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.talk strong {
+  font-size: 12px;
+  font-weight: 600;
+  color: #2b3b24;
+}
+.talk small {
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 1.2px;
+  color: #8e9a7c;
+}
+.talk-wave {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  margin-left: auto;
+  height: 18px;
+}
+.talk-wave b {
+  width: 3px;
+  height: 5px;
+  border-radius: 2px;
+  background: #c3cdb2;
+}
+.talk:not(:disabled):hover {
+  border-color: #adbda0;
+  background: #e9eedf;
+}
+.talk.live {
+  border-color: #6a8139;
+  background: #eaf0dd;
+}
+.talk.live kbd {
+  border-color: #6a8139;
+  color: #35481f;
+}
+.talk.live .talk-wave b {
+  background: #6a8139;
+  animation: talk-wave 0.62s ease-in-out infinite alternate;
+}
+.talk.live .talk-wave b:nth-child(2) {
+  animation-delay: 0.13s;
+}
+.talk.live .talk-wave b:nth-child(3) {
+  animation-delay: 0.26s;
+}
+.talk.live .talk-wave b:nth-child(4) {
+  animation-delay: 0.39s;
+}
+.talk.broken {
+  border-color: #dcc4a4;
+  background: #f8f0e3;
+}
+.talk.broken small {
+  color: #a3804f;
+}
+@keyframes talk-wave {
+  from {
+    height: 4px;
+  }
+  to {
+    height: 17px;
+  }
+}
+.talk-examples {
+  margin: 10px 0 0;
+  font-size: 10px;
+  line-height: 1.55;
+  color: #9aa28d;
+}
+#speech-bubble {
+  position: absolute;
+  right: 30px;
+  bottom: 74px;
+  z-index: 2;
+  max-width: min(62%, 420px);
+  padding: 13px 17px;
+  border: 2px solid #2b3b24;
+  border-radius: 16px;
+  background: #fdfdf6;
+  box-shadow: 0 8px 26px #22321c14;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 16px;
+  line-height: 1.35;
+  color: #22301c;
+  animation: bubble-in 0.16s ease-out;
+}
+#speech-bubble[hidden] {
+  display: none;
+}
+/* Two triangles make the comic tail: the outer one carries the border. */
+#speech-bubble::before,
+#speech-bubble::after {
+  content: "";
+  position: absolute;
+  right: 26px;
+  border: 11px solid transparent;
+  border-bottom-width: 0;
+}
+#speech-bubble::before {
+  bottom: -13px;
+  border-top-color: #2b3b24;
+}
+#speech-bubble::after {
+  bottom: -9px;
+  border-top-color: #fdfdf6;
+}
+#speech-bubble em {
+  display: block;
+  margin-top: 5px;
+  font-family: "DM Sans", sans-serif;
+  font-size: 11px;
+  font-style: normal;
+  color: #8e9a7c;
+}
+#speech-bubble em:empty {
+  display: none;
+}
+.speech-dots {
+  display: none;
+  gap: 5px;
+  padding: 3px 0;
+}
+#speech-bubble.empty .speech-dots {
+  display: flex;
+}
+.speech-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #aeba9b;
+  animation: speech-dots 1s ease-in-out infinite;
+}
+.speech-dot:nth-child(2) {
+  animation-delay: 0.16s;
+}
+.speech-dot:nth-child(3) {
+  animation-delay: 0.32s;
+}
+@keyframes speech-dots {
+  0%,
+  60%,
+  100% {
+    opacity: 0.35;
+  }
+  30% {
+    opacity: 1;
+  }
+}
+@keyframes bubble-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .talk.live .talk-wave b,
+  .speech-dot,
+  #speech-bubble {
+    animation: none;
+  }
+  .talk.live .talk-wave b {
+    height: 13px;
+  }
+}
 @media (min-width: 1500px) {
   main {
     padding-top: 36px;
@@ -445,6 +648,10 @@ footer {
   }
   .scene-footer > span:last-child {
     display: none;
+  }
+  #speech-bubble {
+    max-width: 74%;
+    font-size: 15px;
   }
 }
 @media (max-width: 760px) {
@@ -474,6 +681,13 @@ footer {
   }
   .scene-heading h1 {
     font-size: 36px;
+  }
+  #speech-bubble {
+    right: 18px;
+    left: 18px;
+    bottom: 66px;
+    max-width: none;
+    font-size: 14px;
   }
   aside {
     padding: 30px 12px;
