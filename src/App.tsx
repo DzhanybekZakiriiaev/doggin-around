@@ -426,11 +426,11 @@ function UploadScreen({
                   <span className="scan-line" />
                 </>
               ) : (
-                <div className="photo-placeholder">
-                  <Icon name="upload" size={34} />
-                  <strong>YOUR DOG HERE</strong>
-                  <small>WAITING FOR A PHOTO</small>
-                </div>
+                <img
+                  alt="Comic: a cheerful dog says “Upload a comic here” while a dog in glasses replies “I’m waiting…”"
+                  className="photo-placeholder"
+                  src="/upload-placeholder.png"
+                />
               )}
             </div>
           </div>
@@ -443,6 +443,7 @@ function UploadScreen({
         </div>
       </div>
       <div className="red-slash" />
+      <img alt="" aria-hidden="true" className="corner-mascot" src="/otter-boba.gif" />
     </section>
   );
 }
@@ -466,9 +467,6 @@ function QuestHub({
   const [dogDrag, setDogDrag] = useState(false);
   const [dogStart, setDogStart] = useState(0);
   const [petting, setPetting] = useState(false);
-  const [pageRotation, setPageRotation] = useState({ x: 2, y: -5 });
-  const [pageDrag, setPageDrag] = useState(false);
-  const [pageStart, setPageStart] = useState({ x: 0, y: 0 });
   const [entering, setEntering] = useState<string | null>(null);
 
   const selectQuest = (quest: string | null) => {
@@ -544,29 +542,9 @@ function QuestHub({
       <div className="page-zone">
         <div className="page-zone-title">
           <span>THE QUEST ARCHIVE</span>
-          <strong>DRAG TO ROTATE PAGE</strong>
         </div>
-        <div
-          className="storyboard-wrap"
-          onPointerDown={(event) => {
-            if ((event.target as HTMLElement).closest(".story-panel")) return;
-            setPageDrag(true);
-            setPageStart({ x: event.clientX - pageRotation.y * 10, y: event.clientY + pageRotation.x * 10 });
-            event.currentTarget.setPointerCapture(event.pointerId);
-          }}
-          onPointerMove={(event) => {
-            if (!pageDrag) return;
-            setPageRotation({
-              x: Math.max(-10, Math.min(10, -(event.clientY - pageStart.y) / 10)),
-              y: Math.max(-12, Math.min(12, (event.clientX - pageStart.x) / 10)),
-            });
-          }}
-          onPointerUp={() => setPageDrag(false)}
-        >
-          <div
-            className={`storyboard ${entering ? "storyboard--entering" : ""}`}
-            style={{ transform: `rotateX(${pageRotation.x}deg) rotateY(${pageRotation.y}deg)` }}
-          >
+        <div className="storyboard-wrap">
+          <div className={`storyboard ${entering ? "storyboard--entering" : ""}`}>
             {QUESTS.map((quest) => (
               <StoryPanel
                 chosen={entering === quest.key}
