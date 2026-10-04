@@ -11,6 +11,7 @@ npm run dev        # http://localhost:5173 (the game), /viewer.html (dev viewer)
 
 - `src/App.tsx`, `src/index.css`: the menu (upload, the comic page, the way in and back out).
 - `src/game/`: the game: worlds, first-person player, hands, Biscuit, the quest (`game.ts` ties it together).
+- `src/voice/`: speech to text (ElevenLabs Scribe v2 Realtime) and the keyword parser behind it.
 - `docs/progress.md`: where things stand. `docs/demo-quest.md`: the demo plan. `worlds/README.md`: the world
   pipeline and the game's systems in detail.
 

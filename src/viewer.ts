@@ -120,7 +120,8 @@ for (const control of document.querySelectorAll<HTMLElement>('#hud input, #hud s
   control.addEventListener('change', () => control.blur());
 }
 game.onKey = (event) => {
-  const toggle = { KeyC: colliderToggle, KeyF: flyToggle, KeyH: handsToggle }[event.code];
+  // F is held to talk to Biscuit in the game, so fly is on Z here.
+  const toggle = { KeyC: colliderToggle, KeyZ: flyToggle, KeyH: handsToggle }[event.code];
   if (!toggle) return;
   toggle.checked = !toggle.checked;
   toggle.dispatchEvent(new Event('change'));
