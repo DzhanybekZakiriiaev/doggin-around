@@ -99,16 +99,19 @@ main {
 }
 .studio {
   position: relative;
-  min-height: 700px;
+  display: grid;
+  grid-template-rows: auto minmax(300px, 1fr) 49px;
+  align-self: start;
+  height: calc(100dvh - 170px);
+  min-height: 650px;
   background: #e8eadf;
   border: 1px solid #dbe0ce;
   border-radius: 20px;
   overflow: hidden;
 }
 .scene-heading {
-  position: absolute;
-  top: 36px;
-  left: 38px;
+  position: relative;
+  margin: 28px 32px 12px;
   z-index: 1;
   pointer-events: none;
 }
@@ -118,7 +121,7 @@ main {
 }
 h1 {
   font-family: "Space Grotesk", sans-serif;
-  font-size: clamp(30px, 3.4vw, 49px);
+  font-size: clamp(30px, 3.2vw, 46px);
   font-weight: 500;
   letter-spacing: -2px;
   line-height: 1.08;
@@ -133,19 +136,18 @@ p {
   margin: 0;
 }
 #viewport {
-  position: absolute;
-  inset: 125px 0 40px;
+  position: relative;
+  min-height: 300px;
+  overflow: hidden;
 }
 #viewport canvas {
   display: block;
   touch-action: none;
 }
 .scene-footer {
-  position: absolute;
-  bottom: 0;
+  position: relative;
   height: 49px;
-  left: 28px;
-  right: 28px;
+  margin: 0 28px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -270,22 +272,33 @@ h2 {
   margin: 22px 0 13px;
 }
 .actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 .actions button {
-  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   border: 1px solid #d5dcc8;
   border-radius: 10px;
   background: transparent;
-  padding: 12px 5px;
+  min-height: 42px;
+  padding: 9px 5px;
   color: #89947a;
   font-size: 11px;
 }
 .action-icon {
-  display: block;
-  font-size: 24px;
-  margin-bottom: 6px;
+  font-size: 19px;
+  line-height: 1;
+}
+.actions button[hidden] {
+  display: none;
+}
+.actions button:not(:disabled):not(.selected):hover {
+  background: #e9eedf;
+  border-color: #adbda0;
 }
 .actions button.selected {
   background: #263820;
@@ -414,7 +427,7 @@ footer {
     padding-top: 36px;
   }
   .studio {
-    min-height: 760px;
+    min-height: 700px;
   }
 }
 @media (max-width: 1000px) {
@@ -424,10 +437,11 @@ footer {
     gap: 20px;
   }
   .studio {
-    min-height: 680px;
+    min-height: 650px;
   }
   .scene-heading {
-    left: 25px;
+    margin-left: 25px;
+    margin-right: 25px;
   }
   .scene-footer > span:last-child {
     display: none;
@@ -452,16 +466,14 @@ footer {
     padding: 14px;
   }
   .studio {
+    height: 580px;
     min-height: 580px;
   }
   .scene-heading {
-    top: 25px;
+    margin-top: 25px;
   }
   .scene-heading h1 {
     font-size: 36px;
-  }
-  #viewport {
-    top: 170px;
   }
   aside {
     padding: 30px 12px;

@@ -3,14 +3,16 @@
   "root": "joint_18",
   "torso": ["joint_17", "joint_25", "joint_24", "joint_23"],
   "head": "joint_14",
+  "neck": "joint_22",
+  "jaw": "joint_21",
   "tail": "joint_15",
   "forward": [0, 1, 0],
   "up": [0, 0, 1],
   "spin_pivot": [0, 0, 0.045],
   "legs": [
-    {"name": "front_positive_x", "upper": "joint_5", "lower": "joint_7", "foot": "joint_8", "phase": 0},
-    {"name": "front_negative_x", "upper": "joint_31", "lower": "joint_35", "foot": "joint_36", "phase": 1},
-    {"name": "back_positive_x", "upper": "joint_10", "lower": "joint_11", "foot": "joint_4", "phase": 1},
-    {"name": "back_negative_x", "upper": "joint_30", "lower": "joint_32", "foot": "joint_33", "phase": 0}
+    {"name": "front_positive_x", "upper": "joint_5", "lower": "joint_7", "foot": "joint_8", "contact": "joint_6", "phase": 0},
+    {"name": "front_negative_x", "upper": "joint_31", "lower": "joint_35", "foot": "joint_36", "contact": "joint_34", "phase": 1},
+    {"name": "back_positive_x", "upper": "joint_10", "lower": "joint_11", "foot": "joint_4", "contact": "joint_3", "phase": 1},
+    {"name": "back_negative_x", "upper": "joint_30", "lower": "joint_32", "foot": "joint_33", "contact": "joint_38", "phase": 0}
   ]
 }

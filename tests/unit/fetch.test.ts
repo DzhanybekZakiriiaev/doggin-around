@@ -20,6 +20,7 @@ function fixture() {
     paused: false,
     speed: 1,
     action: "idle" as DogAction,
+    availableActions: ["idle", "walk", "spin"],
     playAction(action: DogAction) {
       this.action = action
     },
@@ -69,6 +70,28 @@ describe("fetch interaction", () => {
     dog.sampleCount = 0
     expect(fetch.throwTo(new THREE.Vector3(1, 0, 1))).toBe(false)
     expect(fetch.ball.visible).toBe(false)
+    fetch.dispose()
+  })
+
+  it("does not start without a walking clip", () => {
+    const { dog, fetch } = fixture()
+    dog.availableActions.splice(0, dog.availableActions.length, "idle")
+    expect(fetch.throwTo(new THREE.Vector3(1, 0, 1))).toBe(false)
+    expect(fetch.state).toBe("idle")
+    expect(fetch.ball.visible).toBe(false)
+    fetch.dispose()
+  })
+
+  it("runs to distant throws and walks to nearby ones when both clips exist", () => {
+    const { dog, fetch } = fixture()
+    dog.availableActions.push("run")
+    fetch.throwTo(new THREE.Vector3(2, 0, 0))
+    for (let frame = 0; frame < 18; frame++) fetch.update(1 / 30)
+    expect(dog.action).toBe("run")
+    fetch.reset()
+    fetch.throwTo(new THREE.Vector3(1, 0, 0))
+    for (let frame = 0; frame < 18; frame++) fetch.update(1 / 30)
+    expect(dog.action).toBe("walk")
     fetch.dispose()
   })
 })

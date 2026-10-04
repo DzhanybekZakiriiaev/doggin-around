@@ -8,7 +8,21 @@ import * as THREE from "three"
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js"
 import { sampleSurface, skinMatrix } from "./sampling"
 
-export type DogAction = "idle" | "walk" | "spin"
+export const DOG_ACTIONS = [
+  { name: "idle", label: "Idle", icon: "◌", playback: "loop" },
+  { name: "walk", label: "Walk", icon: "↝", playback: "loop" },
+  { name: "run", label: "Run", icon: "»", playback: "loop" },
+  { name: "sit", label: "Sit", icon: "⌄", playback: "hold" },
+  { name: "jump", label: "Jump", icon: "↑", playback: "once" },
+  { name: "bark", label: "Bark", icon: "◖", playback: "once" },
+  { name: "paw", label: "Paw", icon: "✧", playback: "once" },
+  { name: "spin", label: "Spin", icon: "⟳", playback: "once" },
+  { name: "playbow", label: "Play bow", icon: "⌁", playback: "once" },
+  { name: "sniff", label: "Sniff", icon: "⋯", playback: "loop" },
+  { name: "wag", label: "Wag", icon: "∿", playback: "loop" },
+] as const
+
+export type DogAction = (typeof DOG_ACTIONS)[number]["name"]
 export type DogView = "splats" | "mesh" | "skeleton"
 type Skin = {
   source: THREE.SkinnedMesh
@@ -32,6 +46,12 @@ export class Dog {
   private loadVersion = 0
   private view: DogView = "splats"
 
+  get availableActions(): DogAction[] {
+    return DOG_ACTIONS.map(({ name }) => name).filter((name) =>
+      this.actions.has(name),
+    )
+  }
+
   async loadDog(assetUrl: string): Promise<void> {
     const version = ++this.loadVersion
     const gltf = await new GLTFLoader().loadAsync(assetUrl)
@@ -52,13 +72,9 @@ export class Dog {
     const clips = new Map(
       gltf.animations.map((clip) => [clip.name.toLowerCase(), clip]),
     )
-    for (const name of ["idle", "walk", "spin"] as const) {
-      if (!clips.has(name)) {
-        this.releaseRoot(gltf.scene)
-        throw new Error(
-          `Missing ${name} clip. Run the Blender animation step first`,
-        )
-      }
+    if (!clips.has("idle")) {
+      this.releaseRoot(gltf.scene)
+      throw new Error("Missing idle clip. Run the Blender animation step first")
     }
     this.clear()
     this.root = gltf.scene
@@ -76,13 +92,16 @@ export class Dog {
     this.root.updateMatrixWorld(true)
     this.mixer = new THREE.AnimationMixer(this.root)
     this.mixer.addEventListener("finished", (event) => {
-      if (event.action === this.active && this.action === "spin")
+      if (event.action === this.active && this.action !== "sit")
         this.playAction("idle")
     })
-    for (const name of ["idle", "walk", "spin"] as const) {
-      const clip = clips.get(name) as THREE.AnimationClip
+    for (const { name, playback } of DOG_ACTIONS) {
+      const clip = clips.get(name)
+      if (!clip) continue
       const action = this.mixer.clipAction(clip)
-      if (name === "spin") {
+      if (playback === "loop") {
+        action.setLoop(THREE.LoopRepeat, Infinity)
+      } else {
         action.setLoop(THREE.LoopOnce, 1)
         action.clampWhenFinished = true
       }

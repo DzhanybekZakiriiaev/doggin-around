@@ -1,7 +1,7 @@
 import { SparkRenderer } from "@sparkjsdev/spark"
 import * as THREE from "three"
 import { OrbitControls } from "three/addons/controls/OrbitControls.js"
-import { Dog, type DogAction, type DogView } from "./dog"
+import { DOG_ACTIONS, Dog, type DogAction, type DogView } from "./dog"
 import { FetchInteraction } from "./fetch"
 import "./style.css"
 
@@ -11,7 +11,7 @@ app.innerHTML = `
   <header><a class="brand" href="/">doggin<span>around</span><i>✳</i></a><span class="label">GAUSSIAN DOG STUDIO</span><span class="connection"><i></i> LOCAL SANDBOX</span></header>
   <main>
     <section class="studio">
-      <div class="scene-heading"><span class="eyebrow">01 / THE PLAYGROUND</span><h1>A little dog.<br>A whole new dimension.</h1><p>Built from a photo. Brought to life in splats.</p></div>
+      <div class="scene-heading"><span class="eyebrow">01 / THE PLAYGROUND</span><h1>A little dog. A whole new dimension.</h1><p>Built from a photo. Brought to life in splats.</p></div>
       <div id="viewport" aria-label="Interactive 3D dog viewer"></div>
       <div class="scene-footer"><span><i class="live-dot"></i> <span id="render-status">Preparing your dog</span></span><span id="fetch-status">CLICK THE FLOOR TO PLAY FETCH <b>·</b> DRAG TO ORBIT</span></div>
       <div id="notice" role="status">Loading the animated dog…</div>
@@ -22,7 +22,7 @@ app.innerHTML = `
       <details class="source-preview"><summary>See Huawei's original photo</summary><figure><img loading="lazy" src="/models/huawei-dog-reference.png" alt="White fluffy dog with sunglasses, flowers, and a blue bow" /><figcaption>Huawei's supplied photo</figcaption></figure><figure><img loading="lazy" src="/models/huawei-dog-fullbody.png" alt="Full-body extension of the supplied dog photo" /><figcaption>Generated full-body reference</figcaption></figure></details>
       <label class="upload" for="model-upload">↗ Import animated GLB<input id="model-upload" type="file" accept=".glb" /></label>
       <div class="section-label">GIVE IT SOMETHING TO DO</div>
-      <div class="actions"><button type="button" data-action="idle" class="selected"><span class="action-icon" aria-hidden="true">◌</span>Idle</button><button type="button" data-action="walk"><span class="action-icon" aria-hidden="true">↝</span>Walk</button><button type="button" data-action="spin"><span class="action-icon" aria-hidden="true">⟳</span>Spin</button></div>
+      <div class="actions" role="group" aria-label="Dog actions">${DOG_ACTIONS.map(({ name, label, icon }) => `<button type="button" data-action="${name}" aria-pressed="${name === "idle"}" class="${name === "idle" ? "selected" : ""}"><span class="action-icon" aria-hidden="true">${icon}</span>${label}</button>`).join("")}</div>
       <button type="button" id="fetch-demo" class="fetch-invite">◌ Toss the ball <span>or click the playground</span></button>
       <div class="transport"><button type="button" id="pause">Pause</button><button type="button" id="reset">Reset pose</button><span id="action-status">IDLE</span></div>
       <div class="section-label">TAKE A CLOSER LOOK</div>
@@ -35,6 +35,7 @@ app.innerHTML = `
     </aside>
   </main>
   <footer><span>FETCHING REALITY / STORMHACKS 2026</span><span>A PHOTO IS JUST THE BEGINNING ↗</span></footer>
+  <audio id="bark-audio" preload="auto" src="/audio/dog-bark.ogg"></audio>
 `
 
 function element<T extends HTMLElement = HTMLElement>(id: string): T {
@@ -48,9 +49,9 @@ renderer.setClearColor(0xe8eadf)
 viewport.append(renderer.domElement)
 const scene = new THREE.Scene()
 const camera = new THREE.PerspectiveCamera(38, 1, 0.01, 100)
-camera.position.set(4.3, 2.5, -5.4)
+camera.position.set(3.8, 3.15, -4.8)
 const controls = new OrbitControls(camera, renderer.domElement)
-controls.target.set(0, 0.85, 0)
+controls.target.set(0, 1.65, 0)
 controls.enableDamping = true
 controls.minDistance = 2
 controls.maxDistance = 12
@@ -78,6 +79,21 @@ scene.add(grid)
 const dog = new Dog()
 scene.add(dog.group)
 const fetchPlay = new FetchInteraction(dog, scene, camera, viewport)
+const barkAudio = element<HTMLAudioElement>("bark-audio")
+let barkElapsed = 0
+let barksRemaining = 0
+
+function stopBark(): void {
+  barkAudio.pause()
+  barkAudio.currentTime = 0
+  barkElapsed = 0
+  barksRemaining = 0
+}
+
+function playBark(): void {
+  barkAudio.playbackRate = dog.speed
+  void barkAudio.play().catch(() => undefined)
+}
 let loaded = false
 let loading = false
 let lastAction = ""
@@ -92,13 +108,22 @@ function busy(value: boolean): void {
   document
     .querySelectorAll<HTMLButtonElement>("aside button")
     .forEach((button) => {
-      button.disabled = value || !loaded
+      const action = button.dataset.action as DogAction | undefined
+      const unavailable =
+        action !== undefined && !dog.availableActions.includes(action)
+      button.hidden = loaded && unavailable
+      button.disabled =
+        value ||
+        !loaded ||
+        unavailable ||
+        (button.id === "fetch-demo" && !dog.availableActions.includes("walk"))
     })
   element<HTMLInputElement>("density").disabled = value || !loaded
   element<HTMLInputElement>("model-upload").disabled = value
 }
 
 async function loadDog(url: string, name = "Huawei's dog"): Promise<void> {
+  stopBark()
   fetchPlay.reset()
   busy(true)
   element("notice").hidden = false
@@ -106,10 +131,14 @@ async function loadDog(url: string, name = "Huawei's dog"): Promise<void> {
   try {
     await dog.loadDog(url)
     loaded = true
+    dog.paused = false
+    element("pause").textContent = "Pause"
+    lastAction = ""
+    lastFetchState = ""
     currentUrl = url
     element("asset-name").textContent = name
     element("asset-detail").textContent =
-      "3 motion clips · textured skin · live rig"
+      `${dog.availableActions.length} motion clip${dog.availableActions.length === 1 ? "" : "s"} · textured skin · live rig`
     element("notice").hidden = true
     element("render-status").textContent = "LIVE GAUSSIAN RENDERING"
     element("splat-count").textContent = dog.sampleCount.toLocaleString()
@@ -129,13 +158,19 @@ document
   .querySelectorAll<HTMLButtonElement>("[data-action]")
   .forEach((button) => {
     button.addEventListener("click", () => {
+      stopBark()
       fetchPlay.stop()
       dog.paused = false
       element("pause").textContent = "Pause"
       dog.playAction(button.dataset.action as DogAction)
+      if (button.dataset.action === "bark") {
+        barksRemaining = 2
+        playBark()
+      }
     })
   })
 element("fetch-demo").addEventListener("click", () => {
+  stopBark()
   fetchPlay.throwTo(new THREE.Vector3(1.8, 0, -1.5))
 })
 document
@@ -152,9 +187,12 @@ document
   })
 element("pause").addEventListener("click", () => {
   dog.paused = !dog.paused
+  if (dog.paused) barkAudio.pause()
+  else if (dog.action === "bark" && !barkAudio.ended) playBark()
   element("pause").textContent = dog.paused ? "Resume" : "Pause"
 })
 element("reset").addEventListener("click", () => {
+  stopBark()
   fetchPlay.reset()
   dog.paused = false
   element("pause").textContent = "Pause"
@@ -179,6 +217,7 @@ density.addEventListener("change", async () => {
 })
 element<HTMLInputElement>("speed").addEventListener("input", (event) => {
   dog.speed = Number((event.target as HTMLInputElement).value)
+  barkAudio.playbackRate = dog.speed
   element("speed-value").textContent =
     `${dog.speed.toFixed(2).replace(/0$/, "")}×`
 })
@@ -209,14 +248,26 @@ renderer.setAnimationLoop(() => {
   const delta = (now - lastFrame) / 1000
   fetchPlay.update(delta)
   dog.update(delta)
+  if (dog.action === "bark" && !dog.paused && barksRemaining > 0) {
+    barkElapsed += Math.min(delta, 0.1) * dog.speed
+    if (barkElapsed >= 0.8) {
+      barkElapsed -= 0.8
+      barksRemaining--
+      barkAudio.currentTime = 0
+      playBark()
+    }
+  }
   lastFrame = now
   controls.update()
   renderer.render(scene, camera)
   if (lastFetchState !== fetchPlay.state) {
+    if (fetchPlay.state !== "idle") stopBark()
     lastFetchState = fetchPlay.state
     element("fetch-status").textContent =
       fetchPlay.state === "idle"
-        ? "CLICK THE FLOOR TO PLAY FETCH · DRAG TO ORBIT"
+        ? dog.availableActions.includes("walk")
+          ? "CLICK THE FLOOR TO PLAY FETCH · DRAG TO ORBIT"
+          : "DRAG TO ORBIT"
         : fetchPlay.state === "returning"
           ? "BRINGING IT BACK"
           : "FETCHING THE BALL"
@@ -230,11 +281,19 @@ renderer.setAnimationLoop(() => {
     lastFps = now
   }
   if (lastAction !== dog.action) {
+    if (dog.action !== "bark") stopBark()
     lastAction = dog.action
-    element("action-status").textContent = dog.action.toUpperCase()
+    element("action-status").textContent =
+      DOG_ACTIONS.find(
+        ({ name }) => name === dog.action,
+      )?.label.toUpperCase() ?? dog.action.toUpperCase()
     document
       .querySelectorAll<HTMLButtonElement>("[data-action]")
       .forEach((button) => {
+        button.setAttribute(
+          "aria-pressed",
+          String(button.dataset.action === dog.action),
+        )
         button.classList.toggle(
           "selected",
           button.dataset.action === dog.action,
@@ -243,6 +302,7 @@ renderer.setAnimationLoop(() => {
   }
 })
 window.addEventListener("pagehide", () => {
+  stopBark()
   observer.disconnect()
   renderer.setAnimationLoop(null)
   fetchPlay.dispose()

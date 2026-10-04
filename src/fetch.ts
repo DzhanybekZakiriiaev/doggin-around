@@ -30,6 +30,7 @@ export class FetchInteraction {
   private readonly floor = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
   private readonly raycaster = new THREE.Raycaster()
   private throwProgress = 0
+  private locomotion: "walk" | "run" = "walk"
   private pointerDown?: { id: number; x: number; y: number }
   private disposed = false
 
@@ -53,7 +54,12 @@ export class FetchInteraction {
   }
 
   throwTo(point: THREE.Vector3): boolean {
-    if (this.disposed || this.dog.sampleCount === 0) return false
+    if (
+      this.disposed ||
+      this.dog.sampleCount === 0 ||
+      !this.dog.availableActions.includes("walk")
+    )
+      return false
     this.stop()
     this.dog.paused = false
     this.target.set(point.x, 0, point.z)
@@ -61,6 +67,10 @@ export class FetchInteraction {
     if (offset.length() > 2.6)
       this.target.copy(this.home).add(offset.setLength(2.6))
     const distance = this.target.distanceTo(this.home)
+    this.locomotion =
+      distance > 1.6 && this.dog.availableActions.includes("run")
+        ? "run"
+        : "walk"
     this.pickupPoint
       .copy(this.target)
       .lerp(this.home, distance > 0 ? Math.min(0.72 / distance, 1) : 1)
@@ -85,14 +95,14 @@ export class FetchInteraction {
         0.72 * Math.sin(Math.PI * progress) + 0.12 * progress
       if (progress === 1) {
         this.state = "chasing"
-        this.dog.playAction("walk")
+        this.dog.playAction(this.locomotion)
       }
       return
     }
     if (this.state === "chasing") {
       if (this.moveToward(this.pickupPoint, step)) {
         this.state = "returning"
-        this.dog.playAction("walk")
+        this.dog.playAction(this.locomotion)
       }
     } else if (this.state === "returning") {
       if (this.moveToward(this.home, step)) {
@@ -144,7 +154,10 @@ export class FetchInteraction {
       return true
     }
     this.turnToward(Math.atan2(-direction.x, -direction.z), delta)
-    const travel = Math.min(distance, 1.35 * delta)
+    const travel = Math.min(
+      distance,
+      (this.locomotion === "run" ? 2.1 : 1.35) * delta,
+    )
     this.dog.group.position.addScaledVector(direction, travel / distance)
     if (distance <= travel + 0.08) {
       this.dog.group.position.copy(point)

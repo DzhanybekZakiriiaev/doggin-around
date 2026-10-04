@@ -1,6 +1,6 @@
 # Doggin Around
 
-A local studio for Huawei's challenge dog, rendered as animated Gaussian splats. The dog can idle, walk, spin, and play fetch in the browser.
+A local studio for Huawei's challenge dog, rendered as animated Gaussian splats. The dog has 11 selectable actions and can chase a ball across the browser playground.
 
 The default asset is `public/models/dog-animated.glb`. The earlier AniGen example dog remains available at `public/models/example-dog-animated.glb` for comparison. Both are editable through their saved Blender projects.
 
@@ -25,7 +25,9 @@ pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-Open http://localhost:5173. Use Idle, Walk, and Spin to control the dog. Click a location on the playground floor or press Toss the ball to play fetch. The ball travels to that spot, the dog turns and walks after it, carries it home, and resumes idle. Drag to orbit, scroll to zoom, or switch to Mesh and Skeleton to inspect the asset. Density changes rebuild the splats and return to idle. The walk clip runs in place so the host scene can control travel independently.
+Open http://localhost:5173. Choose Idle, Walk, Run, Sit, Jump, Bark, Paw, Spin, Play bow, Sniff, or Wag. Walk, Run, Sniff, Wag, and Idle loop. Sit holds its final pose. The other actions play once and return to Idle. Bark plays a short dog sound three times in step with the visible recoil.
+
+Click the playground floor or press Toss the ball to play fetch. The dog turns toward the ball, walks or runs after it based on distance, carries it home, and resumes idle. Drag to orbit, scroll to zoom, or switch to Mesh and Skeleton to inspect the asset. Density changes rebuild the splats and return to idle. Walk and Run play in place so the host scene can control travel independently.
 
 ```sh
 pnpm typecheck
@@ -75,15 +77,22 @@ Inspect a new generated model first:
 blender --background --python scripts/inspect-rig.py -- outputs/huawei-fullbody-generation/dog/mesh.glb work/huawei-rig.json
 ```
 
-The reviewed mapping for this model is `public/models/huawei-dog-rig.json`. It identifies the actual armature, root, torso, head, tail, and four leg chains. `forward`, `up`, and `spin_pivot` use Blender's armature-local coordinates. The animation script uses these directions to calculate the leg swing axis and turn around the torso. Diagonal legs use matching phases. Each newly generated rig must be inspected and its profile reviewed before animation.
+The reviewed mapping for this model is `public/models/huawei-dog-rig.json`. It identifies the actual armature, root, torso, head, neck, jaw, tail, and four leg chains. `forward`, `up`, and `spin_pivot` use Blender's armature-local coordinates. Each newly generated rig must be inspected and its profile reviewed before animation.
 
 ```sh
-blender --background --python scripts/animate-dog.py -- outputs/huawei-fullbody-generation/dog/mesh.glb public/models/huawei-dog-rig.json public/models/dog-animated.glb outputs/huawei-dog-animation.blend
+blender --background --python scripts/animate-dog.py -- outputs/huawei-fullbody-generation/dog/mesh.glb public/models/huawei-dog-rig.json work/dog-authored.glb work/dog-authored.blend
+mkdir -p work/labrador-bvh
+curl -L https://ndownloader.figshare.com/files/43971117 -o work/raw_bvh_data.zip
+unzip -j work/raw_bvh_data.zip 'raw_bvh_data/dog_quad_walk_001.bvh' 'raw_bvh_data/dog_quad_run_001.bvh' -d work/labrador-bvh
+blender --background --python scripts/retarget-bvh.py -- work/dog-authored.blend work/labrador-bvh/dog_quad_walk_001.bvh work/dog-walk.glb work/dog-walk.blend --clip walk --replace-track walk --first 10981 --last 11141 --step 4 --loop --contact-floor
+blender --background --python scripts/retarget-bvh.py -- work/dog-walk.blend work/labrador-bvh/dog_quad_run_001.bvh public/models/dog-animated.glb outputs/huawei-dog-animation.blend --clip run --replace-track run --first 2101 --last 2185 --step 4 --loop --loop-fade 4
 ```
 
-The script bakes idle, walk, and spin clips and exports them from separate NLA tracks. The `.blend` file remains editable. The earlier example dog's source is `outputs/dog-animation.blend` and its mapping is `public/models/dog-rig.json`. The browser accepts self-contained animated GLBs with a skinned mesh, usable skin weights, and clips named `idle`, `walk`, and `spin`. Missing clips or unsupported rigs show an error. Bone names need not follow a specific naming convention. Each skin supports up to 256 bones and four influences per Gaussian.
+The first script bakes 11 authored clips. The two retarget passes replace Walk and Run with Labrador motion-capture loops adapted from [*Lifelike Agility and Play in Quadrupedal Robots using Reinforcement Learning and Generative Pre-trained Models* by Lei Han et al.](https://springernature.figshare.com/articles/dataset/Lifelike_Agility_and_Play_in_Quadrupedal_Robots_using_Reinforcement_Learning_and_Generative_Pre-trained_Models/24968946), released under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). The source intervals were cropped, retargeted onto the Huawei dog, and blended into loops. Source frames are one-based Blender BVH frames. The final `.blend` file keeps the animation tracks editable. The earlier example dog's source is `outputs/dog-animation.blend` and its mapping is `public/models/dog-rig.json`.
 
-These are simple authored motion clips. Walk runs in place and the paws can slide during stepping. Ground contact, realistic locomotion, lip sync, and physics are not implemented. In Blender's Animation workspace, enable the desired NLA track to edit or preview a clip. Idle is enabled when opening the saved file.
+The browser accepts self-contained animated GLBs with a skinned mesh, usable skin weights, and at least an `idle` clip. It shows controls for other supported clips found in the asset. Bone names need not follow a specific naming convention. Each skin supports up to 256 bones and four influences per Gaussian.
+
+Walk is a lively in-place gait with approximate paw contact. Run is a short bounding loop with airborne frames. Sit, Jump, Bark, Paw, Spin, Play bow, Sniff, Wag, and Idle were authored for this rig. They are designed for a responsive hackathon demo, with no physics, realistic ground travel, or lip sync. The generated dog's mouth does not open cleanly, so Bark uses head motion and a sound cue. Each new AniGen skeleton needs a reviewed joint profile and retargeting pass. In Blender's Animation workspace, enable the desired NLA track to edit or preview a clip. Idle is enabled when opening the saved file.
 
 ## Integration
 
@@ -102,7 +111,7 @@ dog.update(deltaSeconds)
 dog.dispose()
 ```
 
-Construct the host's `SparkRenderer` with `covSplats: true` and `accumExtSplats: true`. Move `dog.group` to place the dog inside another scene. Idle and walk loop. Spin plays once and returns to idle. Set `dog.paused`, `dog.speed`, or call `dog.setView('mesh')` for inspection.
+Construct the host's `SparkRenderer` with `covSplats: true` and `accumExtSplats: true`. Move `dog.group` to place the dog inside another scene. Idle, Walk, Run, Sniff, and Wag loop. Sit holds its last pose. Jump, Bark, Paw, Spin, and Play bow return to Idle when finished. Set `dog.paused`, `dog.speed`, or call `dog.setView('mesh')` for inspection. The host application handles Bark audio, while the `Dog` class handles only motion.
 
 Shape conversion samples triangle area, transfers barycentric skin weights, merges shared joints, and normalizes the four largest contributions. Colors come from material base color and texture UVs. The same bind matrices drive Three.js and Spark linear blend skinning. A static PLY alone cannot preserve this skeleton and animation data.
 
@@ -110,9 +119,9 @@ Photo-upload generation, voice interpretation, narration, and webtoon world crea
 
 ## Verified setup
 
-The Huawei export retains one textured skinned mesh, 41 joints, valid skin weights, and three named animation clips. The original portrait run has only 8 joints. Inspection reports for both Huawei inputs are in `outputs/huawei-fullbody-rig-inspection.json` and `outputs/huawei-direct-rig-inspection.json`. The earlier example dog's report is in `outputs/dog-rig-inspection.json`. Unit tests cover sampling, bind transforms, and fetch behavior. Chrome tests cover Gaussian rendering, controls, replacement, mobile layout, fetch, and both generated dogs' complete turn and leg motion. Type checking, lint, and the production build pass.
+The Huawei export retains one textured skinned mesh, 41 joints, valid skin weights, and 11 named animation clips. The original portrait run has only 8 joints. Inspection reports for both Huawei inputs are in `outputs/huawei-fullbody-rig-inspection.json` and `outputs/huawei-direct-rig-inspection.json`. The earlier example dog's report is in `outputs/dog-rig-inspection.json`. Unit tests cover sampling, bind transforms, and fetch behavior. Chrome tests cover Gaussian rendering, controls, replacement, fetch, actions, a complete turn, and leg motion. Type checking, lint, and the production build pass.
 
-The earlier example dog rendered at approximately 58 to 60 FPS with 50,000 splats in Chrome on the setup Mac. Huawei dog playback has also reached approximately 59 to 60 FPS after loading. Performance varies with device, pixel ratio, camera framing, and density. Spark's embedded runtime makes the initial JavaScript bundle relatively large, about 1.05 MB compressed.
+The final Huawei dog measured 60 FPS for Idle, Walk, and Run with 50,000 splats at a 1440 by 960 Chrome viewport on the setup Mac. The median frame interval was 16.7 ms. Performance varies with device, pixel ratio, camera framing, and density. Spark's embedded runtime makes the initial JavaScript bundle relatively large, about 1.05 MB compressed.
 
 Both setup pods were terminated after downloading their generated assets. The first took about 48 minutes at the quoted $0.50 per hour, which implies roughly $0.40 compute. The Huawei pod took about 28 minutes at the same quoted rate, which implies roughly $0.23 compute. Storage is additional, and these are estimates rather than settled charges. No pod is left running. Environment versions and generation metadata are preserved in `outputs/`.
 
@@ -122,5 +131,7 @@ Both setup pods were terminated after downloading their generated assets. The fi
 - [Spark](https://github.com/sparkjsdev/spark)
 - [PyTorch3D](https://github.com/facebookresearch/pytorch3d)
 - [RunPod SSH documentation](https://docs.runpod.io/pods/configuration/use-ssh)
+- [Labrador motion-capture dataset](https://springernature.figshare.com/articles/dataset/Lifelike_Agility_and_Play_in_Quadrupedal_Robots_using_Reinforcement_Learning_and_Generative_Pre-trained_Models/24968946), CC BY 4.0
+- [Dog bark recording by Broadbeer](https://commons.wikimedia.org/wiki/File:George_vuf_1996.ogg), public domain
 
 AniGen and Spark use MIT licenses for their main code. AniGen has separately licensed dependencies. The training-only CUBVH extension is not used by this inference setup. Retain upstream license and attribution records for generated assets and dependencies.
