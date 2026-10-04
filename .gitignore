@@ -1,5 +1,10 @@
 node_modules/
 dist/
+test-results/
+playwright-report/
+
+# Local demo reconstruction assets
+public/models/tricolor-research/
 
 # Secrets (World Labs, Gemini, ElevenLabs keys) - never commit, never ship to the browser
 .env

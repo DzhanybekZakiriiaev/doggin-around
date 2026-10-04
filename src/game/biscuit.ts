@@ -5,13 +5,13 @@ import { DogGait, type RigSpec } from './dog-gait';
 import { Dog, DOG_ACTIONS, type DogAction, type DogView } from './dog/dog';
 import type { Mood } from './lighting';
 import type { Prop } from './props';
+import { COMPANIONS, companionSkills, type CompanionId } from './companions'
 
 // Biscuit: the game-side behaviour around Larry's animated splat dog (src/dog, from larry/dogmodels).
 // The Dog plays its clips in place; this moves him through the world (following the player, fetching
 // thrown props, coming over to be petted, barking) and DogGait walks his legs. Asset: the Huawei
 // challenge dog (50,000 skinned Gaussians).
 
-const MODEL = '/models/dog-animated.glb'; // the Dog only uses the captured splat appearance at this exact path
 const RIG = '/models/huawei-dog-rig.json';
 const LENGTH = 0.85; // metres, nose to tail
 const FOLLOW_DISTANCE = 1.5; // where he settles, from the player
@@ -53,6 +53,9 @@ export class Biscuit {
   private gait?: DogGait;
   private neck?: THREE.Object3D;
   private loaded = false;
+  private changing = false
+  private companion: CompanionId = 'huawei'
+  private stageTrick = false
   private placed = false;
   private moving = false;
   private fetching?: Prop;
@@ -81,20 +84,58 @@ export class Biscuit {
     this.ready = this.load();
   }
 
-  private async load() {
-    const [rig] = await Promise.all([
-      fetch(RIG).then((response) => response.json() as Promise<RigSpec & { neck: string }>),
-      this.dog.loadDog(MODEL),
-    ]);
+  private async load(id: CompanionId = 'huawei') {
+    const model = COMPANIONS[id]
+    const rig = id === 'huawei' ? await fetch(RIG).then((response) => {
+        if (!response.ok) throw new Error('The dog rig could not be loaded')
+        return response.json() as Promise<RigSpec>
+      }) : undefined
+    await this.dog.loadDog(model.model, model.appearance)
     // The Dog normalises the model to 2.6 units on its longest side (nose to tail), feet on y = 0, facing -Z.
     this.dog.group.scale.setScalar(LENGTH / 2.6);
     this.dog.group.updateMatrixWorld(true);
-    this.neck = this.dog.group.getObjectByName(rig.neck);
-    this.gait = new DogGait(rig, this.dog.group, this.group, (x, z, near) => this.groundAt(x, z, near));
+    this.neck = this.dog.group.getObjectByName(model.neck)
+    this.gait = rig ? new DogGait(rig, this.dog.group, this.group, (x, z, near) => this.groundAt(x, z, near)) : undefined
     this.dog.onPose = (step) => this.gait?.apply(step);
     this.loaded = true;
+    this.companion = id
     this.group.visible = this.placed;
     this.applyTint();
+  }
+
+  get companionId() {
+    return this.companion
+  }
+
+  get isReady() {
+    return this.loaded && !this.changing
+  }
+
+  get action() {
+    return this.dog.action
+  }
+
+  get skills() {
+    return companionSkills(this.companion, this.dog.availableActions)
+  }
+
+  async selectCompanion(id: CompanionId) {
+    if (this.changing) return false
+    await this.ready
+    if (id === this.companion) return true
+    this.changing = true
+    this.loaded = false
+    this.barks = []
+    this.bark.pause()
+    this.gait?.letGo()
+    try {
+      await this.load(id)
+      this.stage(this.group.rotation.y)
+      return true
+    } finally {
+      this.loaded = true
+      this.changing = false
+    }
   }
 
   get busy() {
@@ -147,6 +188,7 @@ export class Biscuit {
     this.dropFetch();
     this.mode = 'stage';
     this.presenting = undefined;
+    this.stageTrick = false
     this.studio.visible = false;
     this.dog.paused = false;
     this.dog.setView('splats');
@@ -314,17 +356,24 @@ export class Biscuit {
    * being petted).
    */
   perform(action: DogAction): boolean {
-    if (!this.loaded || this.mode === 'petted' || this.mode === 'dig' || this.mode === 'stage') return false;
+    if (!this.loaded || this.mode === 'petted' || this.mode === 'dig' || !this.skills.some(skill => skill.id === action)) return false
     this.dropFetch(true);
     const playback = DOG_ACTIONS.find((candidate) => candidate.name === action)?.playback;
-    this.mode = 'perform';
+    this.stageTrick = this.mode === 'stage'
+    if (!this.stageTrick) this.mode = 'perform'
     this.timer = playback === 'once' ? Math.max(0.8, this.dog.clipDuration(action)) + 0.25 : playback === 'hold' ? 3 : 2.6;
+    if (this.stageTrick && playback !== 'once') this.timer = Infinity
     this.walkingGait = undefined;
     this.idleTime = 0;
     // Straight into it: a short cross-fade (play), and legs that leave the ground go to the clip at once.
     if (!PLANTED.includes(action)) this.gait?.letGo();
-    if (action === 'bark') this.barkTwice();
-    else this.play(action);
+    this.barks = []
+    this.bark.pause()
+    this.dog.setActionRate(1)
+    this.dog.blendSeconds = TRICK_BLEND
+    this.dog.playAction(action)
+    if (action === 'bark') this.barks = [0.05, 0.85]
+    if (action === 'speak') this.barks = [0.05]
     return true;
   }
 
@@ -335,6 +384,18 @@ export class Biscuit {
 
     switch (this.mode) {
       case 'stage':
+        if (this.stageTrick) {
+          this.timer -= dt
+          if (this.gait) this.gait.active = false
+          this.dog.update(dt)
+          this.back.copy(this.group.position).y += 0.35
+          if (this.timer <= 0) {
+            this.stageTrick = false
+            this.idleTime = 0
+            this.play('idle')
+          }
+          return
+        }
         if (this.presenting) {
           // The pipeline's turntable: his clip in place, the legs as the clip has them (no ground to plant on).
           this.group.rotation.y += this.presenting.turnRate * dt;
@@ -525,7 +586,13 @@ export class Biscuit {
     this.group.position.addScaledVector(direction, travel / distance);
     this.walkingGait = gait;
     this.moving = true;
-    if (this.dog.action !== 'wag' && this.dog.action !== 'idle') this.play('wag');
+    if (this.gait) {
+      if (this.dog.action !== 'wag' && this.dog.action !== 'idle') this.play('wag')
+    } else {
+      this.play(gait)
+      const strideSpeed = (this.dog.gaitCadence?.[gait].travelSpeed ?? SPEED[gait]) * this.dog.group.scale.z
+      this.dog.setActionRate(Math.max(0.15, travel / Math.max(dt, 0.001) / strideSpeed))
+    }
     return false;
   }
 

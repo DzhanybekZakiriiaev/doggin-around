@@ -7,6 +7,8 @@ import {
 import * as THREE from "three"
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js"
 import { type FaceAppearance, loadFaceAppearance } from "./faceAppearance"
+import { type FaceHeadLook, loadFaceHeadLook } from "./faceHeadLook"
+import { headGazeGain, naturalHeadGaze } from "./headGaze"
 import { PawContacts } from "./pawContacts"
 import { loadRiggedAppearance } from "./riggedAppearance"
 import { sampleSurface, skinMatrix } from "./sampling"
@@ -25,6 +27,22 @@ export const DOG_ACTIONS = [
   { name: "sniff", label: "Sniff", icon: "⋯", playback: "loop" },
   { name: "dig", label: "Dig", icon: "⌵", playback: "loop" },
   { name: "wag", label: "Wag", icon: "∿", playback: "loop" },
+  { name: "stand", label: "Stand", icon: "▵", playback: "hold" },
+  { name: "down", label: "Down", icon: "⌄", playback: "hold" },
+  { name: "shake", label: "Shake hands", icon: "✧", playback: "once" },
+  { name: "highfive", label: "High five", icon: "✋", playback: "once" },
+  { name: "touch", label: "Touch", icon: "◎", playback: "once" },
+  { name: "speak", label: "Speak", icon: "◖", playback: "once" },
+  { name: "quiet", label: "Quiet", icon: "○", playback: "hold" },
+  { name: "rollover", label: "Roll over", icon: "⟳", playback: "hold" },
+  { name: "crawl", label: "Crawl", icon: "↝", playback: "loop" },
+  { name: "backup", label: "Back up", icon: "↤", playback: "loop" },
+  { name: "beg", label: "Beg / Pretty", icon: "♧", playback: "hold" },
+  { name: "playdead", label: "Play dead", icon: "◇", playback: "hold" },
+  { name: "peekaboo", label: "Peekaboo", icon: "⌃", playback: "hold" },
+  { name: "weave", label: "Leg weaves", icon: "∞", playback: "loop" },
+  { name: "hold", label: "Hold it", icon: "◉", playback: "hold" },
+  { name: "gangnam", label: "Gangnam style", icon: "♫", playback: "loop" },
 ] as const
 
 export type DogAction = (typeof DOG_ACTIONS)[number]["name"]
@@ -49,9 +67,7 @@ export class Dog {
   speed = 1
   density = 50000
   sampleCount = 0
-  /** Runs after the clip is applied and before the splats are skinned, to adjust the pose (e.g. leg IK). */
   onPose?: (delta: number) => void
-  /** How long one clip cross-fades into the next, in seconds (the game's tricks start quicker). */
   blendSeconds = 0.3
   private root?: THREE.Group
   private mixer?: THREE.AnimationMixer
@@ -70,9 +86,14 @@ export class Dog {
   private capturedAppearance = false
   private faceAppearance?: FaceAppearance
   private faceTransition?: Float32Array
+  private faceBasePositions?: Float32Array
+  private faceHeadLook?: FaceHeadLook
   private appearance?: DogAppearance
-  private lookTarget = 0
+  private lookTarget: number | undefined
   private lookAngle = 0
+  private lookPitchTarget = 0
+  private lookPitch = 0
+  private lookTime = 0
   private lookBones: Array<{
     bone: THREE.Object3D
     weight: number
@@ -82,12 +103,17 @@ export class Dog {
   private lookApplied = false
   private readonly lookRotation = new THREE.Quaternion()
   private readonly lookAxis = new THREE.Vector3(0, 1, 0)
+  private readonly lookPitchRotation = new THREE.Quaternion()
+  private readonly lookPitchAxis = new THREE.Vector3(1, 0, 0)
   private pawContacts?: PawContacts
   private readonly mouthOffset = new THREE.Vector3(0, -0.04, -0.1)
   private readonly onFinished = (event: {
     action: THREE.AnimationAction
   }): void => {
-    if (event.action === this.active && this.action !== "sit")
+    if (
+      event.action === this.active &&
+      DOG_ACTIONS.find(({ name }) => name === this.action)?.playback === "once"
+    )
       this.returnToIdle = true
   }
 
@@ -99,6 +125,45 @@ export class Dog {
 
   get actionRate(): number {
     return this.currentActionRate
+  }
+
+  get actionTime(): number {
+    return this.active?.time ?? 0
+  }
+
+  private actionSequence = 0
+
+  get actionRevision(): number {
+    return this.actionSequence
+  }
+
+  get actionDuration(): number {
+    return this.active?.getClip().duration ?? 1
+  }
+
+  sampleBonePosition(
+    action: DogAction,
+    time: number,
+    name: string,
+    target: THREE.Vector3,
+    offset?: THREE.Vector3,
+  ): THREE.Vector3 | undefined {
+    const clip = this.actions.get(action)?.getClip()
+    if (!this.hasHeadLook || !this.root || !clip) return undefined
+    const pose = this.root.clone(true)
+    const bone = pose.getObjectByName(name)
+    if (!bone) return undefined
+    const mixer = new THREE.AnimationMixer(pose)
+    const sample = mixer.clipAction(clip)
+    sample.setLoop(THREE.LoopOnce, 1)
+    sample.clampWhenFinished = true
+    sample.play()
+    mixer.setTime(time)
+    pose.updateMatrixWorld(true)
+    bone.localToWorld(offset ? target.copy(offset) : target.set(0, 0, 0))
+    mixer.stopAllAction()
+    mixer.uncacheRoot(pose)
+    return target
   }
 
   get maxDensity(): number {
@@ -138,7 +203,12 @@ export class Dog {
   ): THREE.Vector3 | undefined {
     if (this.faceAppearance?.clips.has(action)) {
       this.group.updateWorldMatrix(true, true)
-      this.faceAppearance.sampleMouthPosition(action, time, target)
+      const clip = this.actions.get(action)?.getClip()
+      if (this.faceHeadLook && clip) {
+        const positions = this.faceAppearance.sample(action, time).slice()
+        const corrected = this.faceHeadLook.sampleClip(clip, time, positions)
+        this.faceAppearance.getMouthPosition(target, corrected)
+      } else this.faceAppearance.sampleMouthPosition(action, time, target)
       return this.group.worldToLocal(target)
     }
     const clip = this.actions.get(action)?.getClip()
@@ -182,6 +252,8 @@ export class Dog {
       this.transitionIsPose = candidate.transitionIsPose
       this.transitionTime = candidate.transitionTime
       this.faceTransition = candidate.faceTransition
+      this.faceBasePositions = candidate.faceBasePositions
+      this.faceHeadLook = candidate.faceHeadLook
       this.returnToIdle = candidate.returnToIdle
       this.capturedAppearance = candidate.capturedAppearance
       this.faceAppearance = candidate.faceAppearance
@@ -335,6 +407,18 @@ export class Dog {
           object.matrixAutoUpdate = false
           object.matrix.copy(source.matrix)
           source.parent?.add(object)
+        }
+        if (this.faceAppearance.manifest.files.headLook) {
+          const manifestUrl = new URL(
+            this.faceAppearance.manifestUrl,
+            window.location.href,
+          )
+          this.faceHeadLook = await loadFaceHeadLook(
+            new URL(this.faceAppearance.manifest.files.headLook, manifestUrl)
+              .href,
+            source,
+            this.faceAppearance.manifest.topologyHash,
+          )
         }
         this.sampleCount = this.faceAppearance.splats.numSplats
         this.setView(this.view)
@@ -500,8 +584,20 @@ export class Dog {
   playAction(name: DogAction): void {
     const next = this.actions.get(name)
     if (!next || !this.mixer || !this.root) return
+    this.actionSequence++
     this.removeLook()
     this.pawContacts?.restore()
+    if (name === "quiet") {
+      this.mixer.stopAllAction()
+      this.releaseTransition()
+      this.returnToIdle = false
+      this.transitionTime = 0
+      next.reset().setEffectiveWeight(1).setEffectiveTimeScale(1).play()
+      this.active = next
+      this.action = name
+      this.mixer.update(0)
+      return
+    }
     if (
       this.active &&
       this.active !== next &&
@@ -526,7 +622,9 @@ export class Dog {
       return
     }
     if (this.faceAppearance && this.active)
-      this.faceTransition = this.faceAppearance.vertexPositions.slice()
+      this.faceTransition = (
+        this.faceBasePositions ?? this.faceAppearance.vertexPositions
+      ).slice()
     // Keep the displayed pose when a blend is interrupted.
     const tracks = new Map<string, THREE.KeyframeTrack>()
     if (this.active)
@@ -586,17 +684,25 @@ export class Dog {
     this.active?.setEffectiveTimeScale(rate)
   }
 
-  lookToward(headingOffset: number): void {
+  lookToward(headingOffset: number, pitch = 0): void {
     this.lookTarget = Number.isFinite(headingOffset)
       ? THREE.MathUtils.clamp(headingOffset, -0.5, 0.5)
       : 0
+    this.lookPitchTarget = Number.isFinite(pitch)
+      ? THREE.MathUtils.clamp(pitch, -0.16, 0.16)
+      : 0
+  }
+
+  lookAround(): void {
+    this.lookTarget = undefined
   }
 
   get hasHeadLook(): boolean {
-    return this.lookBones.length > 0
+    return this.lookBones.length > 0 || this.faceHeadLook !== undefined
   }
 
   private removeLook(): void {
+    this.faceHeadLook?.restore()
     if (!this.lookApplied) return
     for (const { bone, base, position } of this.lookBones) {
       bone.quaternion.copy(base)
@@ -675,6 +781,7 @@ export class Dog {
       this.transition.setEffectiveWeight(1 - weight)
     }
     this.mixer?.update(step)
+    let faceSample: Float32Array | undefined
     if (this.faceAppearance && this.active) {
       const sample = this.faceAppearance.sample(this.action, this.active.time)
       if (this.faceTransition) {
@@ -685,15 +792,35 @@ export class Dog {
             this.faceTransition[index] * (1 - weight) + sample[index] * weight
         if (progress === 1) this.faceTransition = undefined
       }
-      this.faceAppearance.updatePositions(sample)
+      this.faceBasePositions ??= new Float32Array(sample.length)
+      this.faceBasePositions.set(sample)
+      faceSample = sample
     }
     if (this.returnToIdle) this.playAction("idle")
     else if (this.transitionTime >= this.blendSeconds) this.releaseTransition()
-    this.lookAngle = THREE.MathUtils.damp(
-      this.lookAngle,
-      this.lookTarget,
-      8,
-      step,
+    this.lookTime += step
+    const gaze = naturalHeadGaze(this.lookTime)
+    const gain = headGazeGain(this.action)
+    this.lookAngle += THREE.MathUtils.clamp(
+      THREE.MathUtils.damp(
+        this.lookAngle,
+        (this.lookTarget ?? gaze.yaw) * gain,
+        8,
+        step,
+      ) - this.lookAngle,
+      -step * 1.1,
+      step * 1.1,
+    )
+    this.lookPitch += THREE.MathUtils.clamp(
+      THREE.MathUtils.damp(
+        this.lookPitch,
+        (this.lookTarget === undefined ? gaze.pitch : this.lookPitchTarget) *
+          gain,
+        8,
+        step,
+      ) - this.lookPitch,
+      -step * 0.45,
+      step * 0.45,
     )
     const head = this.lookBones.find(({ bone }) => bone.name === "joint_14")
     for (const { bone, weight, base, position } of this.lookBones) {
@@ -715,11 +842,20 @@ export class Dog {
           this.lookAxis,
           this.lookAngle * weight,
         )
+        this.lookPitchRotation.setFromAxisAngle(
+          this.lookPitchAxis,
+          this.lookPitch * weight,
+        )
+        this.lookRotation.multiply(this.lookPitchRotation)
         bone.quaternion.multiply(this.lookRotation)
       }
     }
     this.lookApplied = true
-    this.onPose?.(step) // the game's IK legs (DogGait), over the clip and the look
+    if (this.faceAppearance && faceSample) {
+      this.faceHeadLook?.apply(faceSample, this.lookAngle, this.lookPitch)
+      this.faceAppearance.updatePositions(faceSample)
+    }
+    this.onPose?.(step)
     this.group.updateMatrixWorld(true)
     this.pawContacts?.update(
       step,
@@ -779,10 +915,15 @@ export class Dog {
     this.pawContacts = undefined
     this.lookBones = []
     this.lookAngle = 0
-    this.lookTarget = 0
+    this.lookTarget = undefined
+    this.lookPitchTarget = 0
+    this.lookPitch = 0
+    this.lookTime = 0
     this.faceAppearance?.dispose()
     this.faceAppearance = undefined
     this.faceTransition = undefined
+    this.faceBasePositions = undefined
+    this.faceHeadLook = undefined
     this.appearance = undefined
     for (const skin of this.skins) this.releaseSkin(skin)
     this.skins = []

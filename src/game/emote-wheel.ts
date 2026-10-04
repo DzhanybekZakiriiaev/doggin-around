@@ -11,7 +11,7 @@ export interface WheelSlot {
 const RADIUS = 138; // px, from the centre to the middle of the slots
 const SIZE = 380; // px across
 const EDGE = 12; // px kept clear of the window's edges
-const DEAD_ZONE = 26; // px of mouse travel before anything's picked
+const DEAD_ZONE = 64; // px of mouse travel before anything's picked
 const TAP_MS = 250;
 
 export class EmoteWheel {
@@ -24,38 +24,103 @@ export class EmoteWheel {
   private aimY = 0;
   private centreX = 0;
   private centreY = 0;
-  private openedAt = 0;
+  private openedAt = 0
+  private page = 0
+  private title!: HTMLElement
+  private pager!: HTMLElement
+  private pageLabel!: HTMLElement
+  private readonly pageSize = 8
 
   constructor(
     parent: HTMLElement,
-    private readonly items: WheelSlot[],
+    private items: WheelSlot[],
     private readonly onPick: (slot: WheelSlot) => void,
     private readonly onClose: () => void,
   ) {
     this.element = parent.appendChild(document.createElement('div'));
     this.element.className = 'emote-wheel';
-    this.element.style.setProperty('--span', `${360 / items.length}deg`);
-    items.forEach((item, i) => {
-      const angle = (i / items.length) * Math.PI * 2;
-      const slot = this.element.appendChild(document.createElement('button'));
-      slot.type = 'button';
-      slot.className = 'emote-wheel__slot';
-      slot.style.setProperty('--x', `${Math.sin(angle) * RADIUS}px`);
-      slot.style.setProperty('--y', `${-Math.cos(angle) * RADIUS}px`);
-      slot.innerHTML = `<b>${item.icon}</b><span>${item.label}</span>`;
-      // Without pointer lock (drag-to-look) the slots are plain buttons.
-      slot.addEventListener('pointerenter', () => this.select(i));
-      slot.addEventListener('click', (event) => {
-        event.stopPropagation();
-        this.select(i);
-        this.pick();
-      });
-      this.slotEls.push(slot);
-    });
     const centre = this.element.appendChild(document.createElement('div'));
     centre.className = 'emote-wheel__centre';
     centre.innerHTML = '<small>BISCUIT</small><strong></strong>';
-    this.pickLabel = centre.querySelector('strong')!;
+    this.pickLabel = centre.querySelector('strong')!
+    this.title = centre.querySelector('small')!
+    this.element.setAttribute('role', 'dialog')
+    this.element.setAttribute('aria-label', 'Dog skills')
+    this.pager = centre.appendChild(document.createElement('nav'))
+    this.pager.className = 'emote-wheel__pages'
+    this.pager.setAttribute('aria-label', 'Skill pages')
+    const previous = this.pager.appendChild(document.createElement('button'))
+    previous.type = 'button'
+    previous.textContent = '‹'
+    previous.setAttribute('aria-label', 'Previous skills')
+    this.pageLabel = this.pager.appendChild(document.createElement('span'))
+    this.pageLabel.setAttribute('aria-live', 'polite')
+    const next = this.pager.appendChild(document.createElement('button'))
+    next.type = 'button'
+    next.textContent = '›'
+    next.setAttribute('aria-label', 'Next skills')
+    previous.addEventListener('click', event => {
+      event.stopPropagation()
+      this.changePage(-1)
+    })
+    next.addEventListener('click', event => {
+      event.stopPropagation()
+      this.changePage(1)
+    })
+    this.setItems(items, 'BISCUIT')
+  }
+
+  setItems(items: WheelSlot[], title: string) {
+    this.hide()
+    this.items = items
+    this.title.textContent = title
+    this.page = 0
+    this.renderPage()
+  }
+
+  private get visibleItems() {
+    return this.items.slice(this.page * this.pageSize, (this.page + 1) * this.pageSize)
+  }
+
+  private renderPage() {
+    for (const slot of this.slotEls) slot.remove()
+    this.slotEls.length = 0
+    this.selected = -1
+    this.element.classList.remove('has-pick')
+    this.pickLabel.textContent = 'SKILLS'
+    const items = this.visibleItems
+    this.element.style.setProperty('--span', `${360 / Math.max(1, items.length)}deg`)
+    items.forEach((item, index) => {
+      const angle = (index / items.length) * Math.PI * 2
+      const slot = this.element.appendChild(document.createElement('button'))
+      slot.type = 'button'
+      slot.className = 'emote-wheel__slot'
+      slot.dataset.skill = item.id
+      slot.setAttribute('aria-label', item.label)
+      slot.style.setProperty('--x', `${Math.sin(angle) * RADIUS}px`)
+      slot.style.setProperty('--y', `${-Math.cos(angle) * RADIUS}px`)
+      const icon = slot.appendChild(document.createElement('b'))
+      icon.textContent = item.icon
+      icon.setAttribute('aria-hidden', 'true')
+      slot.appendChild(document.createElement('span')).textContent = item.label
+      slot.addEventListener('pointerenter', () => this.select(index))
+      slot.addEventListener('focus', () => this.select(index))
+      slot.addEventListener('click', event => {
+        event.stopPropagation()
+        this.select(index)
+        this.pick()
+      })
+      this.slotEls.push(slot)
+    })
+    this.pageLabel.textContent = `${this.page + 1} / ${Math.max(1, Math.ceil(this.items.length / this.pageSize))}`
+    this.pager.hidden = this.items.length <= this.pageSize
+  }
+
+  changePage(direction: number) {
+    const count = Math.max(1, Math.ceil(this.items.length / this.pageSize))
+    this.page = (this.page + direction + count) % count
+    this.aimX = this.aimY = 0
+    this.renderPage()
   }
 
   get isOpen() {
@@ -64,7 +129,8 @@ export class EmoteWheel {
 
   /** Opens centred on `at` (window pixels; the middle of the window without it), clear of the edges. */
   show(at?: { x: number; y: number }) {
-    const half = SIZE / 2 + EDGE;
+    if (!this.items.length) return
+    const half = SIZE / 2 + EDGE
     const clamp = (value: number, size: number) => Math.min(Math.max(value, half), Math.max(half, size - half));
     this.centreX = clamp(at?.x ?? window.innerWidth / 2, window.innerWidth);
     this.centreY = clamp(at?.y ?? window.innerHeight / 2, window.innerHeight);
@@ -84,16 +150,16 @@ export class EmoteWheel {
     this.onClose();
   }
 
-  /** X let go: picks what's aimed at, unless that was a quick tap with nothing aimed at (it stays open). */
+  /** A quick tap keeps the wheel open, holding X picks on release. */
   release() {
     if (!this.shown) return;
-    if (this.selected < 0 && performance.now() - this.openedAt < TAP_MS) return;
+    if (performance.now() - this.openedAt < TAP_MS) return
     this.pick();
   }
 
   /** Closes, doing whatever's picked (nothing if the aim's still in the middle). */
   pick() {
-    const item = this.items[this.selected];
+    const item = this.visibleItems[this.selected];
     this.hide();
     if (item) this.onPick(item);
   }
@@ -119,7 +185,7 @@ export class EmoteWheel {
   private aimAt(x: number, y: number) {
     if (Math.hypot(x, y) < DEAD_ZONE) return this.select(-1);
     const turn = (Math.atan2(x, -y) + Math.PI * 2) % (Math.PI * 2); // 0 at the top, clockwise
-    this.select(Math.round(turn / ((Math.PI * 2) / this.items.length)) % this.items.length);
+    this.select(Math.round(turn / ((Math.PI * 2) / this.visibleItems.length)) % this.visibleItems.length);
   }
 
   private select(index: number) {
@@ -128,7 +194,7 @@ export class EmoteWheel {
     this.slotEls.forEach((slot, i) => slot.classList.toggle('is-picked', i === index));
     this.element.classList.toggle('has-pick', index >= 0);
     // The highlighted wedge starts half a slot before the picked one.
-    this.element.style.setProperty('--wedge', `${(index - 0.5) * (360 / this.items.length)}deg`);
-    this.pickLabel.textContent = index >= 0 ? this.items[index].label : '';
+    this.element.style.setProperty('--wedge', `${(index - 0.5) * (360 / Math.max(1, this.visibleItems.length))}deg`);
+    this.pickLabel.textContent = this.visibleItems[index]?.label ?? 'SKILLS';
   }
 }
