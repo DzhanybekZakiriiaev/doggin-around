@@ -6,6 +6,8 @@
   "neck": "joint_22",
   "jaw": "joint_21",
   "tail": "joint_15",
+  "tail_chain": ["joint_15", "joint_16", "joint_19", "joint_26"],
+  "ears": ["joint_1", "joint_29"],
   "forward": [0, 1, 0],
   "up": [0, 0, 1],
   "spin_pivot": [0, 0, 0.045],

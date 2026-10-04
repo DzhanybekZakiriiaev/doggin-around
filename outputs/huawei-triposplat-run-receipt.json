@@ -1,0 +1,30 @@
+{
+  "pod_id": "b9k4nwaorlwmn5",
+  "created_at": "2026-10-04T02:08:24.157Z",
+  "termination_confirmed_at": "2026-10-04T02:26:43Z",
+  "delete_status": 204,
+  "pods_after_termination": [],
+  "gpu": "NVIDIA RTX A6000 48 GB",
+  "quoted_gpu_usd_per_hour": 0.53,
+  "console_total_usd_per_hour": 0.54,
+  "conservative_elapsed_seconds": 1098.843,
+  "estimated_new_cost_usd": 0.16482645,
+  "billing_detail_status": "RunPod pod-specific hourly billing posted one record at the final check",
+  "code_revision": "d8db9e018b413dd9c4a9fe22463781bf98e8e68d",
+  "weights_revision": "56a96e603204ec410c4da60c13ea4fa09a2169a9",
+  "viewer_benchmark": {
+    "browser": "Brave Browser Chromium",
+    "width": 1440,
+    "height": 960,
+    "pixel_ratio": 1,
+    "rest_fps_observed": 117.0,
+    "idle_fps_observed": 120.1,
+    "walk16_fps_observed": 119.9,
+    "walk24_side_fps_observed": 120.0,
+    "spin_fps_observed": 120.0,
+    "scope": "Rendering predeformed 50k snapshots. Runtime animation and skinning cost must be measured separately"
+  },
+  "final_pods": [],
+  "posted_cost_usd": 0.08966303430497646,
+  "final_pods_empty_at_billing_check": true
+}

@@ -44,6 +44,23 @@ JOINTS = {
 }
 
 
+LEGS = (
+    (("joint_5", "joint_7", "joint_8"), "joint_6", "b__LeftFinger"),
+    (("joint_31", "joint_35", "joint_36"), "joint_34", "b_RightFinger"),
+    (("joint_10", "joint_11", "joint_4"), "joint_3", "b_LeftToe"),
+    (("joint_30", "joint_32", "joint_33"), "joint_38", "b_RightToe"),
+)
+# Allowed sideways bend in radians.
+HINGES = {"joint_7": 0.14, "joint_35": 0.14, "joint_11": 0.16, "joint_32": 0.16,
+          "joint_8": 0.22, "joint_36": 0.22, "joint_4": 0.18, "joint_33": 0.18,
+          "joint_9": 0.18, "joint_37": 0.18}
+
+
+def ease(t):
+    t = max(0.0, min(1.0, t))
+    return t * t * t * (t * (t * 6.0 - 15.0) + 10.0)
+
+
 def alignment(source, reference_frame):
     bpy.context.scene.frame_set(reference_frame)
     hips = source.pose.bones["b_Hips"].matrix.translation
@@ -65,12 +82,113 @@ def sample_source(source, first, last, step):
                 for source_name in set(JOINTS.values())
             },
             "hip": source.pose.bones["b_Hips"].matrix.translation.copy(),
+            "feet": {name: source.pose.bones[name].matrix.translation.copy()
+                     for _, _, name in LEGS},
         })
     return samples
 
 
+def smooth_loop(poses, passes, loop, blend_frames=None):
+    if loop:
+        first, first_root = poses[0]
+        last, last_root = poses[-1]
+        errors = {name: last[name].inverted() @ first[name] for name in first}
+        drift = last_root - first_root
+        start = max(0, len(poses) - 1 - blend_frames) if blend_frames else 0
+        for index, (rotation, root) in enumerate(poses):
+            factor = ease((index - start) / (len(poses) - 1 - start))
+            for name in rotation:
+                rotation[name] = (rotation[name] @ Quaternion().slerp(errors[name], factor)).normalized()
+            poses[index] = (rotation, root - drift * factor)
+
+    count = len(poses) - 1 if loop else len(poses)
+    for _ in range(passes):
+        filtered = []
+        for index in range(count):
+            left = poses[(index - 1) % count if loop else max(0, index - 1)]
+            right = poses[(index + 1) % count if loop else min(count - 1, index + 1)]
+            rotation, root = poses[index]
+            filtered.append(({
+                name: value.slerp(left[0][name].slerp(right[0][name], 0.5), 0.5).normalized()
+                for name, value in rotation.items()
+            }, root.lerp((left[1] + right[1]) * 0.5, 0.5)))
+        poses[:] = filtered + [(filtered[0][0].copy(), filtered[0][1].copy())] if loop else filtered
+    if loop:
+        close_tangent(poses)
+
+
+def close_tangent(poses):
+    # Match the rotation and translation speeds across the seam.
+    left, right = poses[-2], poses[1]
+    seam = ({name: left[0][name].slerp(right[0][name], 0.5).normalized()
+             for name in left[0]}, (left[1] + right[1]) * 0.5)
+    poses[0] = seam
+    poses[-1] = ({name: rotation.copy() for name, rotation in seam[0].items()}, seam[1].copy())
+
+
+def smooth_wrists(poses, loop):
+    # The source carpus channels have the sharpest spikes.
+    count = len(poses) - 1 if loop else len(poses)
+    for _ in range(4):
+        values = []
+        for index in range(count):
+            left = poses[(index - 1) % count if loop else max(0, index - 1)][0]
+            right = poses[(index + 1) % count if loop else min(count - 1, index + 1)][0]
+            values.append({name: poses[index][0][name].slerp(left[name].slerp(right[name], 0.5), 0.5)
+                           for name in ("joint_8", "joint_36")})
+        for index, rotations in enumerate(values):
+            poses[index][0].update(rotations)
+    if loop:
+        close_tangent(poses)
+
+
+def apply_pose(target, pose):
+    rotations, root = pose
+    for name, rotation in rotations.items():
+        target.pose.bones[name].rotation_quaternion = rotation
+    target.pose.bones["joint_18"].location = root
+    bpy.context.view_layer.update()
+
+
+def contact_pose(target, chain, contact, goal, strength):
+    bones = [target.pose.bones[name] for name in chain]
+    bases = [bone.rotation_quaternion.copy() for bone in bones]
+    axes = [bone.bone.matrix_local.to_quaternion().inverted() @ Vector((1, 0, 0))
+            for bone in bones]
+    offsets = [0.0] * len(bones)
+
+    def point(values):
+        for bone, base, axis, value in zip(bones, bases, axes, values):
+            bone.rotation_quaternion = base @ Quaternion(axis, value)
+        bpy.context.view_layer.update()
+        location = target.pose.bones[contact].matrix.translation
+        return Vector((location.y, location.z))
+
+    for _ in range(12):
+        current = point(offsets)
+        error = goal - current
+        if error.length < 0.0005:
+            break
+        derivatives = []
+        for index in range(len(bones)):
+            probe = offsets.copy()
+            probe[index] += 0.003
+            derivatives.append((point(probe) - current) / 0.003)
+        damping = 0.0005
+        a = sum(value.x * value.x for value in derivatives) + damping
+        b = sum(value.x * value.y for value in derivatives)
+        d = sum(value.y * value.y for value in derivatives) + damping
+        determinant = a * d - b * b
+        x = (d * error.x - b * error.y) / determinant
+        y = (a * error.y - b * error.x) / determinant
+        for index, derivative in enumerate(derivatives):
+            step = max(-0.08, min(0.08, derivative.x * x + derivative.y * y))
+            offsets[index] = max(-0.24, min(0.24, offsets[index] + step))
+    point([offset * strength for offset in offsets])
+
+
 def bake(target, samples, align, clip, scale, include_travel, loop, loop_fade,
-         contact_floor, replace_track):
+         contact_floor, ground_clamp, replace_track, smooth_passes):
     if replace_track:
         target.animation_data_create()
         target.animation_data.action = None
@@ -88,17 +206,20 @@ def bake(target, samples, align, clip, scale, include_travel, loop, loop_fade,
         bone.location = (0, 0, 0)
 
     reference = samples[0]
-    action = bpy.data.actions.new(clip)
-    target.animation_data.action = action
     rig_bones = list(target.data.bones)
     keyed_poses = []
     if not all(name in target.pose.bones for name in JOINTS):
         raise ValueError("Target is not the reviewed 41-bone Huawei rig")
 
-    for frame, sample in enumerate(samples, start=1):
+    source_forward = reference["rotation"]["b_Hips"].inverted() @ (align.inverted() @ Vector((0, 1, 0)))
+    reference_heading = align.inverted() @ Vector((0, 1, 0))
+    for sample in samples:
         world_rotations = {}
         frame_pose = {}
-        hip_stabilizer = reference["rotation"]["b_Hips"] @ sample["rotation"]["b_Hips"].inverted()
+        heading = sample["rotation"]["b_Hips"] @ source_forward
+        heading.z = 0
+        yaw = math.atan2(heading.y, heading.x) - math.atan2(reference_heading.y, reference_heading.x)
+        hip_stabilizer = Quaternion(Vector((0, 0, 1)), -yaw)
         for bone in rig_bones:
             rest = bone.matrix_local.to_quaternion()
             if bone.parent:
@@ -121,9 +242,14 @@ def bake(target, samples, align, clip, scale, include_travel, loop, loop_fade,
                 basis = Quaternion()
                 desired = parent_world @ parent_rest.inverted() @ rest
 
+            if bone.name in HINGES:
+                swing, twist = basis.to_swing_twist("X")
+                if swing.angle > HINGES[bone.name]:
+                    swing = Quaternion().slerp(swing, HINGES[bone.name] / swing.angle)
+                basis = swing @ Quaternion(Vector((1, 0, 0)), twist)
+                desired = parent_world @ parent_rest.inverted() @ rest @ basis
             pose_bone = target.pose.bones[bone.name]
             pose_bone.rotation_quaternion = basis.normalized()
-            pose_bone.keyframe_insert(data_path="rotation_quaternion", frame=frame, group=bone.name)
             frame_pose[bone.name] = pose_bone.rotation_quaternion.copy()
             world_rotations[bone.name] = desired.normalized()
 
@@ -134,34 +260,64 @@ def bake(target, samples, align, clip, scale, include_travel, loop, loop_fade,
         root = target.pose.bones["joint_18"]
         root_basis = root.bone.matrix_local.to_3x3().inverted()
         root.location = root_basis @ (travel * scale)
-        root.keyframe_insert(data_path="location", frame=frame, group=root.name)
         keyed_poses.append((frame_pose, root.location.copy()))
 
-    if loop and len(samples) >= 8:
-        fade = min(loop_fade, len(samples) // 4)
-        first_pose, first_root = keyed_poses[0]
-        for index in range(len(samples) - fade, len(samples)):
-            factor = (index - (len(samples) - fade) + 1) / fade
-            frame_pose, root_location = keyed_poses[index]
-            frame = index + 1
-            for bone in target.pose.bones:
-                bone.rotation_quaternion = frame_pose[bone.name].slerp(first_pose[bone.name], factor)
-                bone.keyframe_insert(data_path="rotation_quaternion", frame=frame, group=bone.name)
-            root = target.pose.bones["joint_18"]
-            root.location = root_location.lerp(first_root, factor)
-            root.keyframe_insert(data_path="location", frame=frame, group=root.name)
+    smooth_loop(keyed_poses, smooth_passes, loop, loop_fade)
+    smooth_wrists(keyed_poses, loop)
 
-    if contact_floor:
-        feet = ("joint_9", "joint_37", "joint_3", "joint_38")
+    if contact_floor or ground_clamp:
+        feet = tuple(contact for _, contact, _ in LEGS)
         floor = min(target.data.bones[name].head_local.z for name in feet)
-        for frame in range(1, len(samples) + 1):
-            bpy.context.scene.frame_set(frame)
-            bpy.context.view_layer.update()
+        heights = {name: [sample["feet"][name].z for sample in samples] for _, _, name in LEGS}
+        thresholds = {name: min(values) + (max(values) - min(values)) * 0.25
+                      for name, values in heights.items()}
+        corrected = []
+        for index, frame_pose in enumerate(keyed_poses):
+            apply_pose(target, frame_pose)
             minimum = min(target.pose.bones[name].matrix.translation.z for name in feet)
+            correction = floor - minimum
+            if ground_clamp:
+                correction = max(0.0, correction)
             root = target.pose.bones["joint_18"]
             root_basis = root.bone.matrix_local.to_3x3().inverted()
-            root.location = root.location + root_basis @ Vector((0, 0, floor - minimum))
-            root.keyframe_insert(data_path="location", frame=frame, group=root.name)
+            root.location = root.location + root_basis @ Vector((0, 0, correction))
+            bpy.context.view_layer.update()
+            for chain, contact, source_name in LEGS:
+                location = target.pose.bones[contact].matrix.translation.copy()
+                band = max(1.0, (max(heights[source_name]) - min(heights[source_name])) * 0.15)
+                strength = ease((thresholds[source_name] - heights[source_name][index]) / band)
+                if location.z < floor + 0.025:
+                    strength = max(strength, ease((floor + 0.025 - location.z) / 0.025))
+                if strength > 0:
+                    goal = Vector((location.y, floor))
+                    contact_pose(target, chain, contact, goal, strength)
+            corrected.append(({bone.name: bone.rotation_quaternion.copy() for bone in target.pose.bones},
+                              root.location.copy()))
+        keyed_poses = corrected
+        smooth_loop(keyed_poses, 1, loop)
+        for frame_pose in keyed_poses:
+            apply_pose(target, frame_pose)
+            minimum = min(target.pose.bones[name].matrix.translation.z for name in feet)
+            if minimum < floor:
+                root = target.pose.bones["joint_18"]
+                root.location += root.bone.matrix_local.to_3x3().inverted() @ Vector((0, 0, floor - minimum))
+                frame_pose[1][:] = root.location
+
+    action = bpy.data.actions.new(clip)
+    target.animation_data.action = action
+    previous = {}
+    for frame, frame_pose in enumerate(keyed_poses, start=1):
+        apply_pose(target, frame_pose)
+        for bone in target.pose.bones:
+            if bone.name in previous and bone.rotation_quaternion.dot(previous[bone.name]) < 0:
+                bone.rotation_quaternion.negate()
+            previous[bone.name] = bone.rotation_quaternion.copy()
+            bone.keyframe_insert(data_path="rotation_quaternion", frame=frame, group=bone.name)
+        target.pose.bones["joint_18"].keyframe_insert(data_path="location", frame=frame, group="joint_18")
+    channelbag = action.layers[0].strips[0].channelbag(target.animation_data.action_slot)
+    for curve in channelbag.fcurves:
+        for key in curve.keyframe_points:
+            key.interpolation = "LINEAR"
 
     track = target.animation_data.nla_tracks.new()
     track.name = clip
@@ -184,7 +340,9 @@ def main():
     parser.add_argument("--travel", action="store_true")
     parser.add_argument("--loop", action="store_true")
     parser.add_argument("--loop-fade", type=int, default=6)
+    parser.add_argument("--smooth-passes", type=int, default=2)
     parser.add_argument("--contact-floor", action="store_true")
+    parser.add_argument("--ground-clamp", action="store_true")
     parser.add_argument("--replace-track")
     args = parser.parse_args(sys.argv[sys.argv.index("--") + 1:])
     if args.step < 1 or args.first < 1 or args.last < args.first:
@@ -193,6 +351,10 @@ def main():
         parser.error("Scale must be positive and finite")
     if args.loop_fade < 1:
         parser.error("Loop fade must be positive")
+    if args.smooth_passes < 0 or args.smooth_passes > 8:
+        parser.error("Smoothing passes must be between zero and eight")
+    if args.loop and (args.last - args.first) // args.step < 3:
+        parser.error("A loop needs at least four sampled poses")
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
     model = Path(args.model).resolve()
@@ -214,7 +376,8 @@ def main():
     align = alignment(source, args.first)
     samples = sample_source(source, args.first, args.last, args.step)
     bake(target, samples, align, args.clip, args.scale, args.travel,
-         args.loop, args.loop_fade, args.contact_floor, args.replace_track)
+         args.loop, args.loop_fade, args.contact_floor, args.ground_clamp,
+         args.replace_track, args.smooth_passes)
     scene = bpy.context.scene
     scene.render.fps = 30
     scene.frame_start = 1

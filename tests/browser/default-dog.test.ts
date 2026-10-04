@@ -5,8 +5,27 @@ test("the default dog exposes all actions, barks, fetches at a run, and fits its
 }) => {
   const errors: string[] = []
   page.on("pageerror", (error) => errors.push(error.message))
+  const appearance = page.waitForResponse((response) =>
+    response.url().endsWith("/models/dog-triposplat-50000.ply"),
+  )
   await page.goto("/")
   await expect(page.locator("#notice")).toBeHidden({ timeout: 60000 })
+  expect((await appearance).ok()).toBe(true)
+  await expect(page.locator("#density")).toHaveAttribute("max", "50000")
+  await page.locator("#density").evaluate((element) => {
+    const slider = element as HTMLInputElement
+    slider.value = "10000"
+    slider.dispatchEvent(new Event("change", { bubbles: true }))
+  })
+  await expect(page.locator("#splat-count")).toHaveText("10,000")
+  await expect(page.locator("#density")).toBeEnabled()
+  await page.locator("#density").evaluate((element) => {
+    const slider = element as HTMLInputElement
+    slider.value = "50000"
+    slider.dispatchEvent(new Event("change", { bubbles: true }))
+  })
+  await expect(page.locator("#splat-count")).toHaveText("50,000")
+  await expect(page.locator("#density")).toBeEnabled()
   await page.evaluate(() => document.fonts.ready)
   await expect(page.locator("[data-action]:visible")).toHaveCount(11)
   await expect(page.locator("#asset-detail")).toHaveText(

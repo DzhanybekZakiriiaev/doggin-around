@@ -45,7 +45,7 @@ app.innerHTML = `
       <div class="range-endpoints"><span>LIGHTER</span><span>MORE DETAIL</span></div>
       <label class="slider-label" for="speed">Animation speed <span id="speed-value">1.0×</span></label><input id="speed" type="range" min="0.25" max="2" step="0.25" value="1" />
       <div class="metrics"><div><span id="splat-count">-</span><small>GAUSSIANS</small></div><div><span id="fps">0</span><small>FRAMES / SEC</small></div></div>
-      <p class="footnote">Surface-sampled Gaussians, driven by a real skeleton. Select a view to see how it works.</p>
+      <p class="footnote" id="render-detail">Photo-generated Gaussians, driven by a real skeleton. Select a view to see how it works.</p>
     </aside>
   </main>
   <footer><span>FETCHING REALITY / STORMHACKS 2026</span><span>A PHOTO IS JUST THE BEGINNING ↗</span></footer>
@@ -162,6 +162,14 @@ async function loadDog(url: string, name = "Huawei's dog"): Promise<void> {
     element("notice").hidden = true
     element("render-status").textContent = "LIVE GAUSSIAN RENDERING"
     element("splat-count").textContent = dog.sampleCount.toLocaleString()
+    element("render-detail").textContent =
+      dog.maxDensity === 50000
+        ? "Photo-generated Gaussians, driven by a real skeleton. Select a view to see how it works."
+        : "Surface-sampled Gaussians, driven by the imported skeleton. Select a view to see how it works."
+    const density = element<HTMLInputElement>("density")
+    density.max = String(dog.maxDensity)
+    density.value = String(dog.density)
+    element("density-value").textContent = dog.density.toLocaleString()
   } catch (error) {
     loaded = dog.sampleCount > 0
     element("notice").textContent =
@@ -218,7 +226,10 @@ document
       performAction(button.dataset.action as DogAction)
     })
   })
-element("fetch-demo").addEventListener("click", tossBall)
+element("fetch-demo").addEventListener("click", () => {
+  stopBark()
+  fetchPlay.throwTo(new THREE.Vector3(-1.2, 0, -1.4))
+})
 document
   .querySelectorAll<HTMLButtonElement>("[data-view]")
   .forEach((button) => {

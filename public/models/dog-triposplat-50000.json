@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "count": 50000,
+  "joints": "dog-triposplat-50000-joints.bin",
+  "weights": "dog-triposplat-50000-weights.bin",
+  "ply": "dog-triposplat-50000.ply",
+  "bone_names": [
+    "joint_18",
+    "joint_12",
+    "joint_10",
+    "joint_11",
+    "joint_4",
+    "joint_3",
+    "joint_2",
+    "joint_15",
+    "joint_16",
+    "joint_19",
+    "joint_26",
+    "joint_17",
+    "joint_25",
+    "joint_24",
+    "joint_23",
+    "joint_13",
+    "joint_5",
+    "joint_7",
+    "joint_8",
+    "joint_9",
+    "joint_6",
+    "joint_22",
+    "joint_14",
+    "joint_1",
+    "joint_0",
+    "joint_29",
+    "joint_40",
+    "joint_21",
+    "joint_20",
+    "joint_27",
+    "joint_31",
+    "joint_35",
+    "joint_36",
+    "joint_37",
+    "joint_34",
+    "joint_28",
+    "joint_30",
+    "joint_32",
+    "joint_33",
+    "joint_38",
+    "joint_39"
+  ],
+  "coordinateSpace": "Original GLB skinned mesh local frame, Three Y up",
+  "colorSpace": "Official TripoSplat DC RGB inverse, matching PLY loader values",
+  "jointsType": "uint8",
+  "weightsType": "float32-le",
+  "influencesPerSplat": 4,
+  "rigSha256": "c917ea4418f77c003fa24c2b007b27e4560b57834bc4639c5c189e5f029f7d57",
+  "inputSha256": "c7afcea18148d8118459d7177573ebc4dccbef0c8ed3c6b9a4f57b47856c314a",
+  "selection": "Fixed rest-pose opacity times covariance volume to power one third, boosted for face, accessories, and dark detail",
+  "alignment": {
+    "linear": [
+      [
+        0.6775149975008778,
+        -0.030333574505129274,
+        -0.6238739599268266
+      ],
+      [
+        0.6228735596266418,
+        -0.0357913178464192,
+        0.67816880327873
+      ],
+      [
+        -0.04655504629010463,
+        -0.9203066180791107,
+        -0.005811354434880627
+      ]
+    ],
+    "translation": [
+      -0.009636918197831273,
+      -0.009666557826688071,
+      0.003073383181336064
+    ]
+  },
+  "accessories": {
+    "head_joint": 22,
+    "neck_joint": 21,
+    "counts": {
+      "cap": 1587,
+      "frames": 1324,
+      "lenses": 1244,
+      "daisies": 3362,
+      "bow": 1781,
+      "head_total": 7212,
+      "neck_total": 1781
+    }
+  }
+}
