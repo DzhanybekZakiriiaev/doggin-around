@@ -52,50 +52,51 @@
   "jointsType": "uint8",
   "weightsType": "float32-le",
   "influencesPerSplat": 4,
-  "rigSha256": "b38ec94f958e0a9e449515ed3439fc820104637a3b836c4fdf1941c040517c85",
+  "rigSha256": "368351d4c6c8bc1df2dd181fa859a3a5fd966bdc21bd22f3794a181d54b81947",
   "inputSha256": "c7afcea18148d8118459d7177573ebc4dccbef0c8ed3c6b9a4f57b47856c314a",
   "selection": "Fixed rest-pose opacity times covariance volume to power one third, boosted for face, accessories, and dark detail",
   "alignment": {
     "linear": [
       [
-        0.6775149975008778,
-        -0.030333574505129274,
-        -0.6238739599268266
+        0.678020184389564,
+        -0.030435488792524813,
+        -0.6234787265545892
       ],
       [
-        0.6228735596266418,
-        -0.0357913178464192,
-        0.67816880327873
+        0.6224684759111176,
+        -0.035966234632933865,
+        0.6786772711289588
       ],
       [
-        -0.04655504629010463,
-        -0.9203066180791107,
-        -0.005811354434880627
+        -0.04674438940731514,
+        -0.9204039998131908,
+        -0.005903479537394745
       ]
     ],
     "translation": [
-      -0.009636918197831273,
-      -0.009666557826688071,
-      0.003073383181336064
+      -0.00991537432791436,
+      -0.00974551717507506,
+      0.0031843374706692707
     ]
   },
   "accessories": {
     "head_joint": 22,
     "neck_joint": 21,
     "counts": {
-      "cap": 1587,
-      "frames": 1324,
-      "lenses": 1244,
+      "cap": 8702,
+      "frames": 1322,
+      "lenses": 1245,
       "daisies": 3362,
-      "bow": 1781,
-      "head_total": 7212,
-      "neck_total": 1781
+      "bow": 2241,
+      "collar": 1928,
+      "head_total": 14020,
+      "neck_total": 2981
     }
   },
   "jaw": {
     "joint": "joint_21",
-    "affected_65536": 960,
-    "core_65536": 507,
-    "affected_50000": 771
+    "affected_65536": 940,
+    "core_65536": 496,
+    "affected_50000": 747
   }
 }

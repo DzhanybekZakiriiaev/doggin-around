@@ -24,7 +24,7 @@ export type FaceAppearanceManifest = {
   files: Record<
     "splats" | "restPositions" | "faces" | "faceIds" | "weights",
     string
-  >
+  > & { restTransforms?: string }
   clips: { name: string; duration: number; times: string; positions: string }[]
   mouth: { face: number; barycentric: [number, number, number] }
   gaitCadence: GaitCadence
@@ -63,6 +63,8 @@ export function parseFaceManifest(value: unknown): FaceAppearanceManifest {
   for (const key of ["splats", "restPositions", "faces", "faceIds", "weights"])
     if (!path(files[key]))
       throw new Error(`Missing face appearance file: ${key}`)
+  if (files.restTransforms !== undefined && !path(files.restTransforms))
+    throw new Error("Invalid rest transform file")
   if (!Array.isArray(manifest.clips) || manifest.clips.length === 0)
     throw new Error("Missing baked animation clips")
   const names = new Set<string>()
@@ -182,6 +184,25 @@ export function validateFaceBinding(
   }
 }
 
+export function validateRestTransforms(
+  transforms: Float32Array,
+  count: number,
+): void {
+  if (transforms.length !== count * 8)
+    throw new Error("Rest transforms have the wrong size")
+  for (let offset = 0; offset < transforms.length; offset += 8) {
+    const quaternionNorm = Math.hypot(
+      ...transforms.subarray(offset, offset + 4),
+    )
+    if (
+      !transforms.subarray(offset, offset + 8).every(Number.isFinite) ||
+      quaternionNorm <= 1e-8 ||
+      transforms.subarray(offset + 4, offset + 7).some((scale) => scale <= 0)
+    )
+      throw new Error("Invalid rest Gaussian transform")
+  }
+}
+
 export function validateBakedClip(clip: BakedClip, vertexCount: number): void {
   if (
     clip.times.length < 2 ||
@@ -228,6 +249,7 @@ function faceModifier(
   ids: THREE.DataTexture,
   weights: THREE.DataTexture,
   frames: THREE.DataTexture,
+  transforms?: THREE.DataTexture,
 ) {
   const idUniform = new dyno.DynoUsampler2D({ key: "faceIds", value: ids })
   const weightUniform = new dyno.DynoSampler2D({
@@ -237,6 +259,10 @@ function faceModifier(
   const frameUniform = new dyno.DynoSampler2D({
     key: "faceFrames",
     value: frames,
+  })
+  const transformUniform = new dyno.DynoSampler2D({
+    key: "faceRestTransforms",
+    value: transforms ?? frames,
   })
   return dyno.dynoBlock(
     { gsplat: dyno.Gsplat },
@@ -248,6 +274,7 @@ function faceModifier(
           ids: "usampler2D",
           weights: "sampler2D",
           frames: "sampler2D",
+          transforms: "sampler2D",
         },
         outTypes: { gsplat: dyno.Gsplat },
         inputs: {
@@ -255,6 +282,7 @@ function faceModifier(
           ids: idUniform,
           weights: weightUniform,
           frames: frameUniform,
+          transforms: transformUniform,
         },
         globals: () => [
           `vec4 smalFaceQuatMul(vec4 a, vec4 b) {
@@ -274,6 +302,15 @@ function faceModifier(
           vec4 rotation = vec4(0.0);
           vec4 reference = vec4(0.0);
           float scale = 0.0;
+          ${
+            transforms
+              ? `int transformIndex = ${inputs.gsplat}.index * 2;
+          int transformWidth = textureSize(${inputs.transforms}, 0).x;
+          vec4 restRotation = normalize(texelFetch(${inputs.transforms}, smalFaceTexel(transformIndex, transformWidth), 0));
+          vec3 restScale = texelFetch(${inputs.transforms}, smalFaceTexel(transformIndex + 1, transformWidth), 0).xyz;`
+              : `vec4 restRotation = ${inputs.gsplat}.quaternion;
+          vec3 restScale = ${inputs.gsplat}.scales;`
+          }
           for (int neighbor = 0; neighbor < 10; ++neighbor) {
             int binding = ${inputs.gsplat}.index * 3 + neighbor / 4;
             uint face = texelFetch(${inputs.ids}, smalFaceTexel(binding, textureSize(${inputs.ids}, 0).x), 0)[neighbor % 4];
@@ -284,14 +321,14 @@ function faceModifier(
             vec3 posed = texelFetch(${inputs.frames}, smalFaceTexel(frame + 1, width), 0).xyz;
             vec4 delta = texelFetch(${inputs.frames}, smalFaceTexel(frame + 2, width), 0);
             center += weight * (smalFaceQuatRotate(delta, ${inputs.gsplat}.center - rest.xyz) + posed);
-            vec4 candidate = smalFaceQuatMul(delta, ${inputs.gsplat}.quaternion);
+            vec4 candidate = smalFaceQuatMul(delta, restRotation);
             if (neighbor == 0) reference = candidate;
             rotation += weight * candidate * (dot(candidate, reference) < 0.0 ? -1.0 : 1.0);
             scale += weight * rest.w;
           }
           ${outputs.gsplat}.center = center;
           ${outputs.gsplat}.quaternion = dot(rotation, rotation) > 1e-16 ? normalize(rotation) : reference;
-          ${outputs.gsplat}.scales *= scale;
+          ${outputs.gsplat}.scales = restScale * scale;
         }`,
         ],
       })
@@ -308,6 +345,7 @@ export class FaceAppearance {
   readonly gaitCadence: GaitCadence
   readonly clips: Map<string, BakedClip>
   private readonly sampledPositions: Float32Array
+  private readonly mouthPositions: Float32Array
   private readonly deformation: FaceDeformation
   private readonly textures: THREE.DataTexture[] = []
   private disposed = false
@@ -322,12 +360,15 @@ export class FaceAppearance {
     weights: Float32Array,
     clips: BakedClip[],
     readonly manifestUrl: string,
+    restTransforms?: Float32Array,
   ) {
+    if (restTransforms) validateRestTransforms(restTransforms, manifest.count)
     this.maxDensity = manifest.count
     this.gaitCadence = manifest.gaitCadence
     this.clips = new Map(clips.map((clip) => [clip.name, clip]))
     this.vertexPositions = restPositions.slice()
     this.sampledPositions = restPositions.slice()
+    this.mouthPositions = restPositions.slice()
     this.deformation = new FaceDeformation(restPositions, faces)
     const geometry = new THREE.BufferGeometry()
     geometry.setAttribute(
@@ -357,6 +398,13 @@ export class FaceAppearance {
       this.textures.push(
         dataTexture(this.deformation.data, manifest.faceCount * 3),
       )
+      if (restTransforms)
+        this.textures.push(
+          dataTexture(
+            restTransforms.subarray(0, source.numSplats * 8),
+            source.numSplats * 2,
+          ),
+        )
       this.splats = new SplatMesh({
         extSplats: source,
         covSplats: true,
@@ -364,6 +412,7 @@ export class FaceAppearance {
           this.textures[0],
           this.textures[1],
           this.textures[2],
+          this.textures[3],
         ),
         enableLod: false,
       })
@@ -405,10 +454,26 @@ export class FaceAppearance {
   }
 
   getMouthPosition(target: THREE.Vector3): THREE.Vector3 {
+    return this.mouthAtPositions(this.vertexPositions, target)
+  }
+
+  sampleMouthPosition(
+    clipName: string,
+    time: number,
+    target: THREE.Vector3,
+  ): THREE.Vector3 {
+    this.sample(clipName, time, this.mouthPositions)
+    return this.mouthAtPositions(this.mouthPositions, target)
+  }
+
+  private mouthAtPositions(
+    positions: Float32Array,
+    target: THREE.Vector3,
+  ): THREE.Vector3 {
     target.set(0, 0, 0)
     for (let corner = 0; corner < 3; corner++) {
       const vertex = this.faces[this.manifest.mouth.face * 3 + corner]
-      this.mouthPoint.fromArray(this.vertexPositions, vertex * 3)
+      this.mouthPoint.fromArray(positions, vertex * 3)
       target.addScaledVector(
         this.mouthPoint,
         this.manifest.mouth.barycentric[corner],
@@ -453,8 +518,8 @@ export async function loadFaceAppearance(
     throw new Error("Could not load the face appearance manifest")
   const manifest = parseFaceManifest(await response.json())
   const resolve = (path: string) => new URL(path, url).href
-  const [restBytes, faceBytes, idBytes, weightBytes, clips] = await Promise.all(
-    [
+  const [restBytes, faceBytes, idBytes, weightBytes, clips, transformBytes] =
+    await Promise.all([
       bytes(resolve(manifest.files.restPositions)),
       bytes(resolve(manifest.files.faces)),
       bytes(resolve(manifest.files.faceIds)),
@@ -474,8 +539,10 @@ export async function loadFaceAppearance(
           return result
         }),
       ),
-    ],
-  )
+      manifest.files.restTransforms
+        ? bytes(resolve(manifest.files.restTransforms))
+        : undefined,
+    ])
   const restPositions = readFaceFloats(restBytes, manifest.vertexCount * 3)
   const faces = readIndices(
     faceBytes,
@@ -495,6 +562,10 @@ export async function loadFaceAppearance(
   ) as Uint16Array
   const weights = readFaceFloats(weightBytes, manifest.count * NEAREST_FACES)
   validateFaceBinding(faceIds, weights, manifest.faceCount)
+  const restTransforms = transformBytes
+    ? readFaceFloats(transformBytes, manifest.count * 8)
+    : undefined
+  if (restTransforms) validateRestTransforms(restTransforms, manifest.count)
   const source = new ExtSplats({ url: resolve(manifest.files.splats) })
   let appearance: FaceAppearance | undefined
   try {
@@ -511,6 +582,7 @@ export async function loadFaceAppearance(
       weights,
       clips,
       url.href,
+      restTransforms,
     )
     await appearance.splats.initialized
     return appearance
