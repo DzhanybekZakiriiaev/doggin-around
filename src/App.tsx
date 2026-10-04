@@ -5,6 +5,8 @@ import {
   PointerEvent as ReactPointerEvent,
   KeyboardEvent as ReactKeyboardEvent,
   ReactNode,
+  createContext,
+  useContext,
   useEffect,
   useRef,
   useState,
@@ -73,7 +75,9 @@ type IconName =
   | "edit"
   | "chevron"
   | "tech"
-  | "rotate";
+  | "rotate"
+  | "sound"
+  | "muted";
 
 function Icon({ name, size = 24 }: { name: IconName; size?: number }) {
   const paths: Record<IconName, ReactNode> = {
@@ -112,6 +116,18 @@ function Icon({ name, size = 24 }: { name: IconName; size?: number }) {
       <>
         <circle cx="12" cy="12" r="3" />
         <path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1" />
+      </>
+    ),
+    sound: (
+      <>
+        <path d="M4 9v6h4l5 4V5L8 9H4Z" />
+        <path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12" />
+      </>
+    ),
+    muted: (
+      <>
+        <path d="M4 9v6h4l5 4V5L8 9H4Z" />
+        <path d="m17 9 5 6M22 9l-5 6" />
       </>
     ),
     rotate: (
@@ -431,6 +447,171 @@ function NarrationBox({ children }: { children: ReactNode }) {
   return <div className="narration-box">{children}</div>;
 }
 
+const MUSIC_SRC = "/day-dawns.mp3";
+const DEFAULT_VOLUME = 0.45;
+const VOLUME_KEY = "doggin-around-volume";
+const LEGACY_MUTE_KEY = "doggin-around-muted";
+
+const SoundContext = createContext({ volume: DEFAULT_VOLUME, setVolume: (_volume: number) => {} });
+
+function readVolume() {
+  try {
+    const saved = localStorage.getItem(VOLUME_KEY);
+    if (saved !== null && !Number.isNaN(Number(saved))) return Math.min(1, Math.max(0, Number(saved)));
+    if (localStorage.getItem(LEGACY_MUTE_KEY) === "1") return 0;
+  } catch {
+    // Storage unavailable: fall back to the default
+  }
+  return DEFAULT_VOLUME;
+}
+
+// Loops the theme while `playing` is true and fades it out when it turns false.
+// Browsers may block audio until the visitor interacts, so playback retries on the first click or key press.
+function useBackgroundMusic(playing: boolean, volume: number) {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const volumeRef = useRef(volume);
+  volumeRef.current = volume;
+  const audible = playing && volume > 0;
+
+  useEffect(() => {
+    const audio = new Audio(MUSIC_SRC);
+    audio.loop = true;
+    audio.preload = "auto";
+    audioRef.current = audio;
+    return () => {
+      audio.pause();
+      audioRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    if (!playing) {
+      const step = Math.max(audio.volume / 16, 0.01);
+      const fade = window.setInterval(() => {
+        audio.volume = Math.max(0, audio.volume - step);
+        if (audio.volume === 0) {
+          window.clearInterval(fade);
+          audio.pause();
+        }
+      }, 50);
+      return () => window.clearInterval(fade);
+    }
+    if (!audible) {
+      audio.pause();
+      return;
+    }
+
+    audio.volume = volumeRef.current;
+    const events = ["pointerdown", "keydown"] as const;
+    const stopWaiting = () => events.forEach((type) => window.removeEventListener(type, start));
+    const start = () => {
+      audio.play().then(stopWaiting, () => {});
+    };
+    events.forEach((type) => window.addEventListener(type, start));
+    start();
+    return stopWaiting;
+  }, [playing, audible]);
+
+  // Follow the slider live without restarting the track
+  useEffect(() => {
+    if (playing && audioRef.current) audioRef.current.volume = volume;
+  }, [playing, volume]);
+
+  // For click handlers that are about to turn `playing` on: starting inside the click itself
+  // keeps stricter browsers (Safari) from blocking it.
+  return () => {
+    const audio = audioRef.current;
+    if (!audio || volumeRef.current === 0) return;
+    audio.volume = volumeRef.current;
+    audio.play().catch(() => {});
+  };
+}
+
+const CLICK_SRC = "/click.wav";
+// The file peaks around -6 dBFS, so ~1.8x (+5 dB) makes it clearly audible without clipping
+const CLICK_GAIN = 1.8;
+
+// Plays the click tone for every button press. Web Audio (rather than <audio>) allows boosting past 100%
+// and overlapping rapid clicks. Its level follows the volume slider, reaching CLICK_GAIN at the default.
+function useClickSound(volume: number) {
+  const volumeRef = useRef(volume);
+  volumeRef.current = volume;
+
+  useEffect(() => {
+    const context = new AudioContext();
+    let buffer: AudioBuffer | null = null;
+    fetch(CLICK_SRC)
+      .then((response) => response.arrayBuffer())
+      .then((data) => context.decodeAudioData(data))
+      .then((decoded) => {
+        buffer = decoded;
+      })
+      .catch(() => {});
+
+    const onClick = (event: MouseEvent) => {
+      if (!buffer || volumeRef.current === 0) return;
+      if (!(event.target as Element | null)?.closest("button")) return;
+      if (context.state === "suspended") void context.resume();
+      const gain = context.createGain();
+      gain.gain.value = Math.min(2, (CLICK_GAIN * volumeRef.current) / DEFAULT_VOLUME);
+      const source = context.createBufferSource();
+      source.buffer = buffer;
+      source.connect(gain).connect(context.destination);
+      source.start();
+    };
+
+    document.addEventListener("click", onClick, true);
+    return () => {
+      document.removeEventListener("click", onClick, true);
+      void context.close();
+    };
+  }, []);
+}
+
+function VolumeControl() {
+  const { volume, setVolume } = useContext(SoundContext);
+  const lastAudible = useRef(volume > 0 ? volume : DEFAULT_VOLUME);
+  const percent = Math.round(volume * 100);
+
+  return (
+    <div className={`volume-control ${volume === 0 ? "volume-control--muted" : ""}`}>
+      <button
+        aria-label={volume === 0 ? "Unmute sound" : "Mute sound"}
+        className="volume-control__mute"
+        onClick={() => {
+          if (volume > 0) {
+            lastAudible.current = volume;
+            setVolume(0);
+          } else {
+            setVolume(lastAudible.current);
+          }
+        }}
+        type="button"
+      >
+        <Icon name={volume === 0 ? "muted" : "sound"} size={18} />
+      </button>
+      <input
+        aria-label="Volume"
+        aria-valuetext={`${percent}%`}
+        className="volume-slider"
+        max={100}
+        min={0}
+        onChange={(event) => {
+          const next = Number(event.target.value) / 100;
+          if (next > 0) lastAudible.current = next;
+          setVolume(next);
+        }}
+        style={{ "--fill": `${percent}%` } as CSSProperties}
+        type="range"
+        value={percent}
+      />
+    </div>
+  );
+}
+
 function TopBar({ screen }: { screen: number }) {
   return (
     <header className="topbar">
@@ -438,10 +619,13 @@ function TopBar({ screen }: { screen: number }) {
         <span className="brand-bolt">D</span>
         <span>DOGGIN’<b>AROUND</b></span>
       </button>
-      <div className="progress">
-        <span>CHAPTER SELECT</span>
-        <strong>0{screen}</strong>
-        <i>/ 03</i>
+      <div className="topbar-right">
+        <VolumeControl />
+        <div className="progress">
+          <span>CHAPTER SELECT</span>
+          <strong>0{screen}</strong>
+          <i>/ 03</i>
+        </div>
       </div>
     </header>
   );
@@ -788,7 +972,7 @@ function QuestIntro({ dogImage, name, quest }: { dogImage: string; name: string;
 const SPLASH_MS = 2300;
 
 // Opening title card: the logo pops in, then the card splits at the seam to reveal the first page
-function IntroSplash({ onDone }: { onDone: () => void }) {
+function IntroSplash({ onDone, onSkip }: { onDone: () => void; onSkip: () => void }) {
   useEffect(() => {
     const timer = window.setTimeout(onDone, SPLASH_MS);
     return () => window.clearTimeout(timer);
@@ -804,7 +988,7 @@ function IntroSplash({ onDone }: { onDone: () => void }) {
   );
 
   return (
-    <div aria-label="Doggin’ Around" className="intro-splash" onClick={onDone} role="presentation">
+    <div aria-label="Doggin’ Around" className="intro-splash" onClick={onSkip} role="presentation">
       <div aria-hidden="true" className="splash-half splash-half--top">
         {logo}
       </div>
@@ -828,6 +1012,19 @@ export default function App() {
   const [dogName, setDogName] = useState("");
   const displayName = dogName.trim() || "YOUR DOG";
   const [quest, setQuest] = useState(QUESTS[0]);
+  const [questChosen, setQuestChosen] = useState(false);
+  const [volume, setVolumeState] = useState(readVolume);
+  const startMusic = useBackgroundMusic(!splash && !questChosen, volume);
+  useClickSound(volume);
+
+  const setVolume = (next: number) => {
+    setVolumeState(next);
+    try {
+      localStorage.setItem(VOLUME_KEY, String(next));
+    } catch {
+      // Preference just won't persist
+    }
+  };
 
   // A panel sweeps across, the screen swaps while it's covered, then it sweeps off.
   const next = () => {
@@ -852,31 +1049,42 @@ export default function App() {
   };
 
   return (
-    <main className={`game-shell screen-${screen}`}>
-      {screen === 1 && <UploadScreen comic={comic} dogImage={dogImage} onComic={setComicFile} onFile={setFile} onNext={next} />}
-      {screen === 2 && (
-        <QuestHub
-          dogImage={dogImage}
-          name={dogName}
-          displayName={displayName}
-          setName={setDogName}
-          onNext={(chosen) => {
-            setQuest(chosen);
-            next();
-          }}
-        />
-      )}
-      {screen === 3 && <QuestIntro dogImage={dogImage} name={dogName.trim()} quest={quest} />}
-      {splash && <IntroSplash onDone={endSplash} />}
-      {wipeTo !== null && (
-        <div aria-hidden="true" className="screen-wipe">
-          <div className="screen-wipe__panel" />
-          <div className="screen-wipe__label">
-            <small>CHAPTER</small>
-            <strong>0{wipeTo}</strong>
+    <SoundContext.Provider value={{ volume, setVolume }}>
+      <main className={`game-shell screen-${screen}`}>
+        {screen === 1 && <UploadScreen comic={comic} dogImage={dogImage} onComic={setComicFile} onFile={setFile} onNext={next} />}
+        {screen === 2 && (
+          <QuestHub
+            dogImage={dogImage}
+            name={dogName}
+            displayName={displayName}
+            setName={setDogName}
+            onNext={(chosen) => {
+              setQuest(chosen);
+              setQuestChosen(true);
+              next();
+            }}
+          />
+        )}
+        {screen === 3 && <QuestIntro dogImage={dogImage} name={dogName.trim()} quest={quest} />}
+        {splash && (
+          <IntroSplash
+            onDone={endSplash}
+            onSkip={() => {
+              startMusic();
+              endSplash();
+            }}
+          />
+        )}
+        {wipeTo !== null && (
+          <div aria-hidden="true" className="screen-wipe">
+            <div className="screen-wipe__panel" />
+            <div className="screen-wipe__label">
+              <small>CHAPTER</small>
+              <strong>0{wipeTo}</strong>
+            </div>
           </div>
-        </div>
-      )}
-    </main>
+        )}
+      </main>
+    </SoundContext.Provider>
   );
 }
