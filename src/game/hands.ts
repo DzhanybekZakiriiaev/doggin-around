@@ -68,7 +68,8 @@ interface Action {
 
 // Keyframe poses for both hands are written in right-hand terms; the left hand is mirrored.
 const DOOR_GRIP = { rx: 0.05, ry: 0.1, rz: -1.35 };
-const RUB = { x: 0.035, rx: 0.25, ry: 0.5, rz: -1.45, curl: 0.2, thumb: 0.25 };
+// Palms pressed together, fingers up and forward (turned in, they crossed through each other).
+const RUB = { x: 0.055, rx: 0.7, ry: 0.1, rz: -1.55, curl: 0.15, thumb: 0.2 };
 const WARM = { x: 0.11, y: -0.1, z: -0.45, rx: 0.15, ry: 0.2, rz: -0.15, curl: 0.05, thumb: 0.05, wrist: 1.15 };
 const WAVE = { x: 0.17, y: -0.02, z: -0.42, rx: 0.3, ry: 0.1, curl: 0.05, thumb: 0.1, wrist: 1.2 };
 const BECKON = { x: 0.12, y: -0.12, z: -0.42, rx: 0.35, ry: 0.25, rz: 2.6, thumb: 0.2 };

@@ -33,7 +33,9 @@ const FOUND: { label: string; box: [number, number, number, number] }[] = [
   { label: "PERSON · 0.95", box: [0.55, 0.5, 0.225, 0.182] },
   { label: "DOG · 0.94", box: [0.765, 0.52, 0.141, 0.095] },
 ];
-const STORM_NIGHT = "/comic/storm-night-bad-ending.png";
+/** The Storm Night page, a light copy for the pipeline when nothing's been uploaded (the PNG is 6 MB). */
+const STORM_NIGHT = "/pipeline/storm-night-page.jpg";
+const STORM_NIGHT_ASPECT = 1800 / 2900;
 
 const VIEWS = [
   { src: "/pipeline/view-front.png", label: "FRONT" },
@@ -63,6 +65,9 @@ const count = (t: number, from: number, to: number, total: number) =>
 export function Pipeline({ comic, game, onDone }: { comic: Comic | null; game: Game | null; onDone: () => void }) {
   const [t, setT] = useState(0);
   const [pageSize, setPageSize] = useState("1800 × 2900");
+  // The page's shape is set up front (not left to the image, which may still be loading and would leave
+  // it a sliver), then matched to the picture once it's in.
+  const [pageAspect, setPageAspect] = useState(STORM_NIGHT_ASPECT);
   const onDoneRef = useRef(onDone);
   onDoneRef.current = onDone;
   const ended = useRef(false);
@@ -168,12 +173,15 @@ export function Pipeline({ comic, game, onDone }: { comic: Comic | null; game: G
 
         {/* 1. Reading the comic */}
         <div className={`pl-layer pl-read ${phase(0)}`}>
-          <div className={`pl-page ${t > 2.4 ? "pl-page--lift" : ""}`}>
+          <div className={`pl-page ${t > 2.4 ? "pl-page--lift" : ""}`} style={{ aspectRatio: pageAspect }}>
             <img
               alt="Your comic"
               onLoad={(event) => {
                 const image = event.currentTarget;
-                setPageSize(`${image.naturalWidth} × ${image.naturalHeight}`);
+                if (!image.naturalWidth || !image.naturalHeight) return;
+                setPageAspect(image.naturalWidth / image.naturalHeight);
+                // The log reports the page as it was given (the light fallback stands in for the 1800 × 2900 original).
+                if (page !== STORM_NIGHT) setPageSize(`${image.naturalWidth} × ${image.naturalHeight}`);
               }}
               src={page}
             />
