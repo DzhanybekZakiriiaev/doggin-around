@@ -100,29 +100,115 @@ input:focus-visible {
   padding: 0;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 14px;
   cursor: pointer;
-  font: 900 19px/0.8 "Barlow Condensed", sans-serif;
+  font: 900 29px/0.8 "Barlow Condensed", sans-serif;
   letter-spacing: -0.04em;
   text-align: left;
 }
 
 .brand b {
   display: block;
-  font-size: 12px;
+  font-size: 18px;
   letter-spacing: 0.18em;
 }
 
 .brand-bolt {
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: 54px;
+  height: 54px;
   background: var(--yellow);
   border: 3px solid var(--ink);
-  font-size: 25px;
+  font-size: 38px;
   transform: rotate(-5deg);
   clip-path: polygon(8% 12%, 85% 0, 100% 84%, 17% 100%);
+}
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: clamp(14px, 2vw, 26px);
+}
+
+.volume-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px 5px 5px;
+  border: 2px solid currentColor;
+}
+
+.volume-control__mute {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.volume-control__mute:hover {
+  background: var(--yellow);
+  color: var(--ink);
+}
+
+.volume-control__mute:focus-visible,
+.volume-slider:focus-visible {
+  outline: 3px solid var(--blue);
+  outline-offset: 2px;
+}
+
+.volume-control--muted {
+  opacity: 0.7;
+}
+
+/* Track shows the level as a yellow fill; the thumb is a small comic-style block */
+.volume-slider {
+  --fill: 45%;
+  width: 92px;
+  height: 18px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.volume-slider::-webkit-slider-runnable-track {
+  height: 6px;
+  border: 1.5px solid currentColor;
+  background: linear-gradient(90deg, currentColor var(--fill), transparent var(--fill));
+}
+
+.volume-slider::-moz-range-track {
+  height: 6px;
+  border: 1.5px solid currentColor;
+  background: linear-gradient(90deg, currentColor var(--fill), transparent var(--fill));
+}
+
+.volume-slider::-webkit-slider-thumb {
+  width: 14px;
+  height: 18px;
+  margin-top: -7.5px;
+  border: 2px solid var(--ink);
+  background: var(--cream);
+  box-shadow: 2px 2px 0 var(--ink);
+  transform: rotate(-6deg);
+  -webkit-appearance: none;
+}
+
+.volume-slider::-moz-range-thumb {
+  width: 12px;
+  height: 16px;
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  background: var(--cream);
+  box-shadow: 2px 2px 0 var(--ink);
 }
 
 .progress {
@@ -874,6 +960,105 @@ input:focus-visible {
 }
 
 /* Screen transitions */
+/* Opening splash: one logo drawn in two clipped halves that pull apart from the middle */
+.intro-splash {
+  position: fixed;
+  z-index: 200;
+  inset: 0;
+  cursor: pointer;
+}
+
+.splash-half {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle, rgba(10, 11, 15, 0.12) 1.2px, transparent 1.5px) 0 0 / 8px 8px,
+    var(--paper);
+}
+
+.splash-half::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(50% - 5px);
+  height: 10px;
+  background: var(--ink);
+  opacity: 0;
+  animation: splash-edge 0.12s 1.3s forwards;
+}
+
+.splash-half--top {
+  clip-path: inset(0 0 50% 0);
+  animation: splash-pull-up 0.8s 1.35s cubic-bezier(0.7, 0, 0.2, 1) forwards;
+}
+
+.splash-half--bottom {
+  clip-path: inset(50% 0 0 0);
+  animation: splash-pull-down 0.8s 1.35s cubic-bezier(0.7, 0, 0.2, 1) forwards;
+}
+
+.splash-logo {
+  display: flex;
+  align-items: center;
+  gap: clamp(14px, 2.4vw, 28px);
+  font: 900 clamp(54px, 10vw, 120px)/0.8 "Barlow Condensed", sans-serif;
+  letter-spacing: -0.04em;
+  animation: splash-logo-in 0.6s 0.1s cubic-bezier(0.18, 0.9, 0.25, 1.2) both;
+}
+
+.splash-logo b {
+  display: block;
+  font-size: 0.62em;
+  letter-spacing: 0.18em;
+}
+
+.splash-logo .brand-bolt {
+  width: clamp(92px, 17vw, 210px);
+  height: clamp(92px, 17vw, 210px);
+  border-width: clamp(4px, 0.6vw, 7px);
+  font-size: clamp(64px, 12vw, 148px);
+}
+
+.splash-seam {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 100%;
+  height: 6px;
+  margin-top: -3px;
+  background: var(--yellow);
+  box-shadow: 0 0 18px rgba(255, 211, 34, 0.8);
+  transform: scaleX(0);
+  animation: splash-seam 1.15s 0.75s ease forwards;
+}
+
+@keyframes splash-logo-in {
+  from { opacity: 0; transform: scale(0.82) rotate(-3deg); }
+  to { opacity: 1; transform: scale(1) rotate(0); }
+}
+
+@keyframes splash-seam {
+  0% { transform: scaleX(0); opacity: 1; }
+  52% { transform: scaleX(1); opacity: 1; }
+  70% { transform: scaleX(1); opacity: 1; }
+  100% { transform: scaleX(1); opacity: 0; }
+}
+
+@keyframes splash-edge {
+  to { opacity: 1; }
+}
+
+@keyframes splash-pull-up {
+  to { transform: translateY(-55%); }
+}
+
+@keyframes splash-pull-down {
+  to { transform: translateY(55%); }
+}
+
 /* Screen transition: a slab sweeps across, the screen swaps underneath, then it sweeps off */
 .screen-wipe {
   position: fixed;
@@ -1001,6 +1186,30 @@ input:focus-visible {
 
   .progress span {
     display: none;
+  }
+
+  .volume-control {
+    gap: 4px;
+    padding: 3px 8px 3px 3px;
+  }
+
+  .volume-slider {
+    width: 58px;
+  }
+
+  .brand {
+    gap: 10px;
+    font-size: 23px;
+  }
+
+  .brand b {
+    font-size: 14px;
+  }
+
+  .brand-bolt {
+    width: 42px;
+    height: 42px;
+    font-size: 29px;
   }
 
   .upload-screen {
@@ -1455,7 +1664,7 @@ input:focus-visible {
 
 .hub-header {
   z-index: 7;
-  top: 83px;
+  top: 104px;
   left: clamp(24px, 4vw, 70px);
   padding: 0;
   transform: translate3d(calc(var(--pointer-x) * -6px), calc(var(--pointer-y) * -4px), 80px);
@@ -1479,7 +1688,7 @@ input:focus-visible {
 .hub-companion {
   z-index: 5;
   left: 2.5%;
-  top: 22%;
+  top: max(22%, 205px);
   bottom: 6%;
   width: 41%;
   transform-style: preserve-3d;
@@ -2111,7 +2320,7 @@ input:focus-visible {
   }
 
   .hub-header {
-    top: 82px;
+    top: 98px;
     left: 20px;
     right: 20px;
   }
@@ -2121,7 +2330,7 @@ input:focus-visible {
   }
 
   .hub-companion {
-    top: 205px;
+    top: 220px;
     left: -3%;
     width: 51%;
     height: 430px;
@@ -2136,7 +2345,7 @@ input:focus-visible {
 
 
   .page-zone {
-    top: 220px;
+    top: 235px;
     right: 2%;
     width: 56%;
     height: 500px;
@@ -2159,11 +2368,11 @@ input:focus-visible {
   }
 
   .hub-screen {
-    min-height: 1240px;
+    min-height: 1255px;
   }
 
   .hub-header {
-    top: 77px;
+    top: 92px;
   }
 
   .hub-header .comic-heading h1 {
@@ -2171,7 +2380,7 @@ input:focus-visible {
   }
 
   .hub-companion {
-    top: 225px;
+    top: 240px;
     left: 0;
     width: 100%;
     height: 420px;
@@ -2192,7 +2401,7 @@ input:focus-visible {
 
 
   .page-zone {
-    top: 680px;
+    top: 695px;
     left: 0;
     right: 0;
     width: 100%;
