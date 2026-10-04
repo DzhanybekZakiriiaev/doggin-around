@@ -321,19 +321,6 @@ input:focus-visible {
   gap: 31px;
 }
 
-.text-action {
-  padding: 9px 0;
-  border: 0;
-  border-bottom: 2px solid var(--ink);
-  background: transparent;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  font: 800 11px/1 "Inter", sans-serif;
-  letter-spacing: 0.1em;
-}
-
 .photo-intro {
   min-height: 580px;
   position: relative;
@@ -397,19 +384,6 @@ input:focus-visible {
   box-shadow: 0 0 18px var(--yellow);
   animation: scan 3.5s ease-in-out infinite;
   z-index: 2;
-}
-
-.frame-tag {
-  position: absolute;
-  z-index: 3;
-  top: 25px;
-  right: 16px;
-  padding: 7px 11px;
-  background: var(--yellow);
-  border: 2px solid var(--ink);
-  font: 900 12px/1 "Barlow Condensed", sans-serif;
-  letter-spacing: 0.12em;
-  transform: rotate(-4deg);
 }
 
 .scribble {
@@ -927,10 +901,6 @@ input:focus-visible {
 
   .upload-actions .game-cta {
     width: 100%;
-  }
-
-  .text-action {
-    align-self: center;
   }
 
   .photo-intro {
