@@ -364,32 +364,10 @@ input:focus-visible {
   filter: saturate(1.08) contrast(1.05);
 }
 
-.photo-placeholder {
-  position: absolute;
-  inset: 8% 10%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  border: 3px dashed rgba(255, 250, 240, 0.35);
-  color: var(--cream);
-  text-align: center;
-}
-
-.photo-placeholder svg {
-  color: var(--yellow);
-}
-
-.photo-placeholder strong {
-  font: italic 900 clamp(28px, 3.4vw, 46px)/0.9 "Barlow Condensed", sans-serif;
-}
-
-.photo-placeholder small {
-  color: rgba(255, 250, 240, 0.6);
-  font-size: 9px;
-  font-weight: 800;
-  letter-spacing: 0.2em;
+.photo-frame img.photo-placeholder {
+  object-fit: cover;
+  object-position: center 30%;
+  filter: none;
 }
 
 .photo-frame__inner::after {
@@ -474,6 +452,36 @@ input:focus-visible {
   background: var(--red);
   transform: rotate(-8deg);
   border-top: 4px solid var(--ink);
+}
+
+/* The GIF has ~15% transparent padding on each side, so offsets are tuned to the visible otter */
+.corner-mascot {
+  position: absolute;
+  z-index: 8;
+  right: clamp(0px, 1.5vw, 24px);
+  bottom: clamp(-4px, 1vh, 12px);
+  width: clamp(150px, 15vw, 230px);
+  pointer-events: none;
+  filter: drop-shadow(6px 8px 0 rgba(17, 17, 17, 0.25));
+}
+
+@media (max-width: 1100px) {
+  .corner-mascot {
+    right: 4px;
+    bottom: 6px;
+    width: 125px;
+  }
+}
+
+@media (max-width: 620px) {
+  .upload-screen {
+    padding-bottom: 150px;
+  }
+
+  .corner-mascot {
+    right: 6px;
+    width: 140px;
+  }
 }
 
 /* Meet */

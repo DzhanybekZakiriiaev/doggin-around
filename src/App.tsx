@@ -426,11 +426,11 @@ function UploadScreen({
                   <span className="scan-line" />
                 </>
               ) : (
-                <div className="photo-placeholder">
-                  <Icon name="upload" size={34} />
-                  <strong>YOUR DOG HERE</strong>
-                  <small>WAITING FOR A PHOTO</small>
-                </div>
+                <img
+                  alt="Comic: a cheerful dog says “Upload a comic here” while a dog in glasses replies “I’m waiting…”"
+                  className="photo-placeholder"
+                  src="/upload-placeholder.png"
+                />
               )}
             </div>
           </div>
@@ -443,6 +443,7 @@ function UploadScreen({
         </div>
       </div>
       <div className="red-slash" />
+      <img alt="" aria-hidden="true" className="corner-mascot" src="/otter-boba.gif" />
     </section>
   );
 }
