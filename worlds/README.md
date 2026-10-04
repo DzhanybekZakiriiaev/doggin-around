@@ -8,7 +8,7 @@ The two walkable worlds (yard and cabin) are generated with the World Labs Marbl
   - `yard-single` / `cabin-single`: one plate plus the text prompt. **Use these.** Marble paints the whole 360° panorama itself, so it comes out seamless with a believable floor and ceiling/sky.
   - `yard` / `cabin`: four plates. More control over each side, but Marble stitches the plates as panels, which leaves seams (sometimes black gaps) and an invented, repetitive floor and ceiling.
 - `plates/`: the Gemini input images. Prompts are in [plates/PROMPTS.md](plates/PROMPTS.md). `*.original.jpg` are the unedited versions of plates we mirrored or cropped.
-- `out/<scene>/` (git-ignored): one folder per generated world with `world.json`, `splats_*.spz`, `collider.glb`, the panorama and a thumbnail, plus `runs.jsonl` logging every run.
+- `out/<scene>/`: one folder per generated world with `world.json`, `splats_*.spz`, `collider.glb`, the panorama and a thumbnail, plus `runs.jsonl` logging every run. Only the final worlds the game uses are committed (yard A, yard B and the cabin, without their panoramas); drafts stay local. After generating a new final, add its folder to `.gitignore`'s list.
 
 ## Workflow
 

@@ -6,8 +6,17 @@ dist/
 .env.*
 !.env.example
 
-# Generated World Labs runs (drafts, SPZ, colliders, panos). Copy the chosen world into the game's assets instead.
-worlds/out/
+# Generated World Labs runs. Drafts stay local; the final worlds the game uses are committed so nobody has
+# to generate them again (panoramas left out: they're only needed to regenerate or repair a world).
+worlds/out/*
+!worlds/out/yard-single/
+!worlds/out/cabin-single/
+worlds/out/yard-single/*
+worlds/out/cabin-single/*
+!worlds/out/yard-single/2026-10-04T02-05-08_standard_77b1c400/
+!worlds/out/yard-single/2026-10-04T02-05-53_standard_a985bc88/
+!worlds/out/cabin-single/2026-10-04T02-04-41_standard_dd8ca1b4/
+worlds/out/**/pano.png
 
 # Editors / OS
 .idea/

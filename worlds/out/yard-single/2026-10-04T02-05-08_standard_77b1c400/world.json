@@ -1,0 +1,70 @@
+{
+  "label": "standard",
+  "operation_id": "2977de06-cf96-4bce-8091-4a66c9549923",
+  "cost": {
+    "total_credits": 1500,
+    "line_items": [
+      {
+        "name": "Pano generation (image, pano)",
+        "credits": 0
+      },
+      {
+        "name": "World generation",
+        "credits": 1500
+      }
+    ]
+  },
+  "world": {
+    "world_id": "77b1c400-5e4e-4f3e-b78c-dc2e0de89513",
+    "display_name": "Storm Night - Front Yard (1 plate) (standard)",
+    "tags": [
+      "storm-night",
+      "yard",
+      "panel-1"
+    ],
+    "assets": {
+      "mesh": {
+        "collider_mesh_url": "https://cdn.marble.worldlabs.ai/77b1c400-5e4e-4f3e-b78c-dc2e0de89513/d207339b.glb",
+        "hq_mesh_url": null,
+        "full_res_mesh_url": null
+      },
+      "imagery": {
+        "pano_url": "https://cdn.marble.worldlabs.ai/77b1c400-5e4e-4f3e-b78c-dc2e0de89513/57022c7c-b5a6-4c1c-a960-45801c74192a_panos/rgb_0.png"
+      },
+      "splats": {
+        "spz_urls": {
+          "500k": "https://cdn.marble.worldlabs.ai/77b1c400-5e4e-4f3e-b78c-dc2e0de89513/272695b0-2b2a-4101-8b48-3557c96a8739_ceramic_500k.spz",
+          "100k": "https://cdn.marble.worldlabs.ai/77b1c400-5e4e-4f3e-b78c-dc2e0de89513/71783722-6497-4b41-b110-f343c1b9bef6_dust_100k.spz",
+          "150k": "https://cdn.marble.worldlabs.ai/77b1c400-5e4e-4f3e-b78c-dc2e0de89513/dd671abb-43dc-4306-98dd-017bd49c745d_ceramic_150k.spz",
+          "full_res": "https://cdn.marble.worldlabs.ai/77b1c400-5e4e-4f3e-b78c-dc2e0de89513/589c54c2-b97d-4e6a-81d2-23e17dfe9c25_ceramic.spz"
+        },
+        "semantics_metadata": {
+          "metric_scale_factor": 2.498331069946289,
+          "ground_plane_offset": 1.4276679754257202
+        }
+      },
+      "thumbnail_url": "https://cdn.marble.worldlabs.ai/77b1c400-5e4e-4f3e-b78c-dc2e0de89513/dcdb2aea-7e69-4f4d-97ef-e31d00fe63d8_sand_mpi/thumbnail.webp",
+      "caption": "Front yard of a small cozy log cabin in a pine forest at overcast dusk, seen at eye level from the middle of the yard. Facing the cabin: a wide covered wooden porch with three broad steps, a warm glowing lantern beside a closed red front door, a wooden bench, log walls with one warmly lit window, and a freshly dug empty muddy hole in bare soil beside the steps. To the right: the side of the cabin with a stacked woodpile under a small slanted roof, a rain barrel, and a big old pine tree with roots spreading over soft ground. Behind: a gravel path leading to a gap in a low split-rail fence with a mailbox on a post, a wide old tree stump on one side and a flower bed of loose dark soil on the other, dark pines beyond and a distant storm cloud bank. To the left: the fence curving past an old wooden wheelbarrow, ferns and tall grass. Damp gravel, grass and pine needles underfoot. Soft even blue-grey dusk light with warm amber accents from the lantern and window. Stylized semi-realistic animated-film look with hand-painted textures and rich teal, amber and magenta color. The yard is empty and still: no people, no animals."
+    },
+    "created_at": "2026-10-04T02:00:05Z",
+    "updated_at": "2026-10-04T02:05:05Z",
+    "permission": {
+      "public": false,
+      "allowed_readers": [],
+      "allowed_writers": [],
+      "allow_id_access": false
+    },
+    "world_prompt": {
+      "text_prompt": "Front yard of a small cozy log cabin in a pine forest at overcast dusk, seen at eye level from the middle of the yard. Facing the cabin: a wide covered wooden porch with three broad steps, a warm glowing lantern beside a closed red front door, a wooden bench, log walls with one warmly lit window, and a freshly dug empty muddy hole in bare soil beside the steps. To the right: the side of the cabin with a stacked woodpile under a small slanted roof, a rain barrel, and a big old pine tree with roots spreading over soft ground. Behind: a gravel path leading to a gap in a low split-rail fence with a mailbox on a post, a wide old tree stump on one side and a flower bed of loose dark soil on the other, dark pines beyond and a distant storm cloud bank. To the left: the fence curving past an old wooden wheelbarrow, ferns and tall grass. Damp gravel, grass and pine needles underfoot. Soft even blue-grey dusk light with warm amber accents from the lantern and window. Stylized semi-realistic animated-film look with hand-painted textures and rich teal, amber and magenta color. The yard is empty and still: no people, no animals.",
+      "type": "image",
+      "image_prompt": {
+        "uri": "https://cdn.marble.worldlabs.ai/api/media-assets/ld0fj2iyNcVC1ZiyeMuXoqcDbIU2/a4b7e527-c030-433c-aecc-d43c7a397b86/pano_fixed.png",
+        "data_base64": null,
+        "extension": "png"
+      },
+      "is_pano": true
+    },
+    "world_marble_url": "https://marble.worldlabs.ai/world/77b1c400-5e4e-4f3e-b78c-dc2e0de89513",
+    "model": "marble-1.1"
+  }
+}

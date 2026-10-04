@@ -1,0 +1,70 @@
+{
+  "label": "standard",
+  "operation_id": "42809a4e-dcf0-4028-9b7c-02604d996f61",
+  "cost": {
+    "total_credits": 1500,
+    "line_items": [
+      {
+        "name": "Pano generation (image, pano)",
+        "credits": 0
+      },
+      {
+        "name": "World generation",
+        "credits": 1500
+      }
+    ]
+  },
+  "world": {
+    "world_id": "dd8ca1b4-3d97-4a12-a7b7-72ff9313e875",
+    "display_name": "Storm Night - Cabin Living Room (1 plate) (standard)",
+    "tags": [
+      "storm-night",
+      "cabin",
+      "panel-2"
+    ],
+    "assets": {
+      "mesh": {
+        "collider_mesh_url": "https://cdn.marble.worldlabs.ai/dd8ca1b4-3d97-4a12-a7b7-72ff9313e875/1516f212.glb",
+        "hq_mesh_url": null,
+        "full_res_mesh_url": null
+      },
+      "imagery": {
+        "pano_url": "https://cdn.marble.worldlabs.ai/dd8ca1b4-3d97-4a12-a7b7-72ff9313e875/d7beb559-7ee4-47ce-8738-eed6642d97c2_panos/rgb_0.png"
+      },
+      "splats": {
+        "spz_urls": {
+          "500k": "https://cdn.marble.worldlabs.ai/dd8ca1b4-3d97-4a12-a7b7-72ff9313e875/87b72764-3f67-4cbb-9812-49c0364ad4d4_ceramic_500k.spz",
+          "100k": "https://cdn.marble.worldlabs.ai/dd8ca1b4-3d97-4a12-a7b7-72ff9313e875/343b9164-0f56-4fee-b515-2db0093e3f0f_dust_100k.spz",
+          "150k": "https://cdn.marble.worldlabs.ai/dd8ca1b4-3d97-4a12-a7b7-72ff9313e875/e578e6df-fe67-4add-a9f6-bf74e557ef0b_ceramic_150k.spz",
+          "full_res": "https://cdn.marble.worldlabs.ai/dd8ca1b4-3d97-4a12-a7b7-72ff9313e875/10fbf23b-988d-424e-aa7f-e48e09385683_ceramic.spz"
+        },
+        "semantics_metadata": {
+          "metric_scale_factor": 1.9102931022644043,
+          "ground_plane_offset": 1.2234890460968018
+        }
+      },
+      "thumbnail_url": "https://cdn.marble.worldlabs.ai/dd8ca1b4-3d97-4a12-a7b7-72ff9313e875/6be22c1a-90e8-4a6e-93e6-26fb09e73a5a_sand_mpi/thumbnail.webp",
+      "caption": "Cozy rustic log cabin living room in the evening, seen at eye level from the center of the room. Ahead: a large river-stone fireplace with an empty cold hearth (clean iron grate, a little grey ash, no fire, no logs), a thick wooden mantel with a clock and candles, an empty wicker log basket and iron fire tools. To the right: a worn brown leather couch with a chunky knitted blanket under a large window showing blue dusk and pine silhouettes, a side table with a lamp, and an empty round dog bed in the corner. Behind: an open front doorway with no door onto a dim covered porch, coat hooks with a scarf and a lantern, a boot tray and a small bench. To the left: a small kitchen nook with a wooden counter, open shelves of mugs and jars, a kettle, a small round table with two chairs, and a wide-open back door onto a dark back porch. A braided oval rug on a wide plank floor, exposed log walls and ceiling beams. Soft even evening lamplight, warm amber with cool blue from the windows. Stylized semi-realistic animated-film look with hand-painted textures and rich teal, amber and magenta color. The room is empty and still: no people, no animals."
+    },
+    "created_at": "2026-10-04T01:59:40Z",
+    "updated_at": "2026-10-04T02:04:38Z",
+    "permission": {
+      "public": false,
+      "allowed_readers": [],
+      "allowed_writers": [],
+      "allow_id_access": false
+    },
+    "world_prompt": {
+      "text_prompt": "Cozy rustic log cabin living room in the evening, seen at eye level from the center of the room. Ahead: a large river-stone fireplace with an empty cold hearth (clean iron grate, a little grey ash, no fire, no logs), a thick wooden mantel with a clock and candles, an empty wicker log basket and iron fire tools. To the right: a worn brown leather couch with a chunky knitted blanket under a large window showing blue dusk and pine silhouettes, a side table with a lamp, and an empty round dog bed in the corner. Behind: an open front doorway with no door onto a dim covered porch, coat hooks with a scarf and a lantern, a boot tray and a small bench. To the left: a small kitchen nook with a wooden counter, open shelves of mugs and jars, a kettle, a small round table with two chairs, and a wide-open back door onto a dark back porch. A braided oval rug on a wide plank floor, exposed log walls and ceiling beams. Soft even evening lamplight, warm amber with cool blue from the windows. Stylized semi-realistic animated-film look with hand-painted textures and rich teal, amber and magenta color. The room is empty and still: no people, no animals.",
+      "type": "image",
+      "image_prompt": {
+        "uri": "https://cdn.marble.worldlabs.ai/api/media-assets/ld0fj2iyNcVC1ZiyeMuXoqcDbIU2/630b8082-134c-479a-afd7-65f0d2f6b41f/pano.png",
+        "data_base64": null,
+        "extension": "png"
+      },
+      "is_pano": true
+    },
+    "world_marble_url": "https://marble.worldlabs.ai/world/dd8ca1b4-3d97-4a12-a7b7-72ff9313e875",
+    "model": "marble-1.1"
+  }
+}
