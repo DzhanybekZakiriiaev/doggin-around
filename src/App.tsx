@@ -785,10 +785,43 @@ function QuestIntro({ dogImage, name, quest }: { dogImage: string; name: string;
   );
 }
 
+const SPLASH_MS = 2300;
+
+// Opening title card: the logo pops in, then the card splits at the seam to reveal the first page
+function IntroSplash({ onDone }: { onDone: () => void }) {
+  useEffect(() => {
+    const timer = window.setTimeout(onDone, SPLASH_MS);
+    return () => window.clearTimeout(timer);
+  }, [onDone]);
+
+  const logo = (
+    <div className="splash-logo">
+      <span className="brand-bolt">D</span>
+      <span>
+        DOGGIN’<b>AROUND</b>
+      </span>
+    </div>
+  );
+
+  return (
+    <div aria-label="Doggin’ Around" className="intro-splash" onClick={onDone} role="presentation">
+      <div aria-hidden="true" className="splash-half splash-half--top">
+        {logo}
+      </div>
+      <div aria-hidden="true" className="splash-half splash-half--bottom">
+        {logo}
+      </div>
+      <span aria-hidden="true" className="splash-seam" />
+    </div>
+  );
+}
+
 const TRANSITION_MS = 950;
 
 export default function App() {
   const [screen, setScreen] = useState(1);
+  const [splash, setSplash] = useState(true);
+  const endSplash = useRef(() => setSplash(false)).current;
   const [wipeTo, setWipeTo] = useState<number | null>(null);
   const [dogImage, setDogImage] = useState("");
   const [comic, setComic] = useState<ComicFile | null>(null);
@@ -834,6 +867,7 @@ export default function App() {
         />
       )}
       {screen === 3 && <QuestIntro dogImage={dogImage} name={dogName.trim()} quest={quest} />}
+      {splash && <IntroSplash onDone={endSplash} />}
       {wipeTo !== null && (
         <div aria-hidden="true" className="screen-wipe">
           <div className="screen-wipe__panel" />
