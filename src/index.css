@@ -1617,8 +1617,6 @@ input:focus-visible {
   right: 2.5%;
   bottom: 5%;
   width: 56%;
-  transform: translate(calc(var(--pointer-x) * 8px), calc(var(--pointer-y) * 5px));
-  transition: transform .2s ease-out;
 }
 
 .page-zone-title {
@@ -1639,12 +1637,6 @@ input:focus-visible {
   box-shadow: 5px 5px 0 var(--ink);
 }
 
-.page-zone-title strong {
-  margin-top: 10px;
-  color: #949aa5;
-  font-size: 7px;
-  letter-spacing: .15em;
-}
 
 .floating-quest-caption {
   position: absolute;
@@ -1685,13 +1677,6 @@ input:focus-visible {
   display: grid;
   place-items: center;
   container-type: size;
-  perspective: 1600px;
-  cursor: grab;
-  touch-action: none;
-}
-
-.storyboard-wrap:active {
-  cursor: grabbing;
 }
 
 .storyboard {
@@ -1709,7 +1694,6 @@ input:focus-visible {
   background: var(--paper);
   border: 4px solid var(--ink);
   box-shadow: 18px 22px 0 rgba(0,0,0,.45), 9px 9px 0 #9c978b;
-  transition: transform .15s ease-out;
 }
 
 .story-panel {
