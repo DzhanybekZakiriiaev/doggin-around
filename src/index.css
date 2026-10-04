@@ -100,27 +100,27 @@ input:focus-visible {
   padding: 0;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 14px;
   cursor: pointer;
-  font: 900 19px/0.8 "Barlow Condensed", sans-serif;
+  font: 900 29px/0.8 "Barlow Condensed", sans-serif;
   letter-spacing: -0.04em;
   text-align: left;
 }
 
 .brand b {
   display: block;
-  font-size: 12px;
+  font-size: 18px;
   letter-spacing: 0.18em;
 }
 
 .brand-bolt {
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: 54px;
+  height: 54px;
   background: var(--yellow);
   border: 3px solid var(--ink);
-  font-size: 25px;
+  font-size: 38px;
   transform: rotate(-5deg);
   clip-path: polygon(8% 12%, 85% 0, 100% 84%, 17% 100%);
 }
@@ -1003,6 +1003,21 @@ input:focus-visible {
     display: none;
   }
 
+  .brand {
+    gap: 10px;
+    font-size: 23px;
+  }
+
+  .brand b {
+    font-size: 14px;
+  }
+
+  .brand-bolt {
+    width: 42px;
+    height: 42px;
+    font-size: 29px;
+  }
+
   .upload-screen {
     min-height: 100svh;
     overflow: auto;
@@ -1455,7 +1470,7 @@ input:focus-visible {
 
 .hub-header {
   z-index: 7;
-  top: 83px;
+  top: 104px;
   left: clamp(24px, 4vw, 70px);
   padding: 0;
   transform: translate3d(calc(var(--pointer-x) * -6px), calc(var(--pointer-y) * -4px), 80px);
@@ -1479,7 +1494,7 @@ input:focus-visible {
 .hub-companion {
   z-index: 5;
   left: 2.5%;
-  top: 22%;
+  top: max(22%, 205px);
   bottom: 6%;
   width: 41%;
   transform-style: preserve-3d;
@@ -2111,7 +2126,7 @@ input:focus-visible {
   }
 
   .hub-header {
-    top: 82px;
+    top: 98px;
     left: 20px;
     right: 20px;
   }
@@ -2121,7 +2136,7 @@ input:focus-visible {
   }
 
   .hub-companion {
-    top: 205px;
+    top: 220px;
     left: -3%;
     width: 51%;
     height: 430px;
@@ -2136,7 +2151,7 @@ input:focus-visible {
 
 
   .page-zone {
-    top: 220px;
+    top: 235px;
     right: 2%;
     width: 56%;
     height: 500px;
@@ -2159,11 +2174,11 @@ input:focus-visible {
   }
 
   .hub-screen {
-    min-height: 1240px;
+    min-height: 1255px;
   }
 
   .hub-header {
-    top: 77px;
+    top: 92px;
   }
 
   .hub-header .comic-heading h1 {
@@ -2171,7 +2186,7 @@ input:focus-visible {
   }
 
   .hub-companion {
-    top: 225px;
+    top: 240px;
     left: 0;
     width: 100%;
     height: 420px;
@@ -2192,7 +2207,7 @@ input:focus-visible {
 
 
   .page-zone {
-    top: 680px;
+    top: 695px;
     left: 0;
     right: 0;
     width: 100%;
