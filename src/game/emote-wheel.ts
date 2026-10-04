@@ -150,10 +150,10 @@ export class EmoteWheel {
     this.onClose();
   }
 
-  /** A quick tap keeps the wheel open, holding X picks on release. */
+  /** Releasing without a selection keeps the wheel open. */
   release() {
     if (!this.shown) return;
-    if (performance.now() - this.openedAt < TAP_MS) return
+    if (this.selected < 0 || performance.now() - this.openedAt < TAP_MS) return
     this.pick();
   }
 

@@ -8,7 +8,11 @@ export default defineConfig({
     baseURL: 'http://127.0.0.1:5180',
     channel: 'chrome',
     viewport: { width: 1440, height: 960 },
-    launchOptions: { args: process.platform === 'darwin' ? ['--use-angle=metal'] : [] },
+    permissions: ['microphone'],
+    launchOptions: { args: [
+      ...(process.platform === 'darwin' ? ['--use-angle=metal'] : []),
+      '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream',
+    ] },
   },
   webServer: {
     command: 'npm run dev -- --host 127.0.0.1 --port 5180 --strictPort',

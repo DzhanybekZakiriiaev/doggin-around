@@ -17,6 +17,7 @@ import { gripFor, Prop, type PropKind, propModel } from './props';
 import { AdaptiveQuality, splatRadiusCap } from './quality';
 import { Rain } from './rain';
 import { ComicTransition } from './transition';
+import { DogVoice } from './voice';
 import { MarbleWorld } from './world';
 import { worldRuns } from './worlds-index';
 import './game.css';
@@ -27,7 +28,9 @@ import './game.css';
 // - "play": first person in the Marble worlds, with the Storm Night quest (when on): the cabin door is
 //   locked, Biscuit digs up the spare key, the key opens the door; the cabin is freezing, so three
 //   branches from the yard go on the cold grate, and lighting the fire completes it.
-// The dev viewer (viewer.html) drives the same Game with its HUD and the quest off.
+// Biscuit takes orders three ways: the emote wheel (hold X), the look-at prompts (E), and spoken commands
+// (hold F, src/game/voice.ts). The dev viewer (viewer.html) drives the same Game with its HUD and the
+// quest off.
 
 export interface GameUi {
   prompt: HTMLElement;
@@ -68,6 +71,9 @@ const OBJECTIVES: Record<QuestStage, (gathered: number) => string> = {
   fire: () => 'The fire’s catching…',
   complete: () => 'Home, dry and warm',
 };
+
+/** Asked for from further off than this, "dig!" is just the trick, not the quest's dig. */
+const DIG_RANGE = 4;
 
 /** Until the key turns, the front door is locked. */
 const LOCKED_STAGES: QuestStage[] = ['arrive', 'locked', 'digging', 'key'];
@@ -112,6 +118,8 @@ export class Game {
   readonly settings: Settings;
   /** Hold X: Biscuit's tricks, next to him. */
   readonly wheel: EmoteWheel;
+  /** Hold F: spoken commands (ElevenLabs Scribe, then the keyword parser). */
+  readonly voice: DogVoice;
   private interactionsBeforeWheel = true;
   private pointerLockedBeforeWheel = false
 
@@ -187,6 +195,22 @@ export class Game {
     this.wheel = new EmoteWheel(this.layer, [], (slot) => this.useWheel(slot), () => this.wheelClosed())
     this.biscuit = new Biscuit(this.renderer, this.physics);
     this.scene.add(this.biscuit.group);
+    this.voice = new DogVoice(this.layer, {
+      perform: (action) => this.command(action),
+      come: () => void this.callBiscuit(),
+      stop: () => void this.biscuit.perform('idle'), // whatever he's at, dropped; then he stands
+      pet: () => {
+        if (this.carried.length || this.hands.busy || !this.player.inputEnabled) return false;
+        void this.pet();
+        return true;
+      },
+      fetch: () => {
+        const top = this.carried.at(-1);
+        if (!top || top.kind === 'key' || this.hands.busy || !this.player.inputEnabled) return false;
+        void this.throwCarried();
+        return true;
+      },
+    });
     this.biscuit.ready.catch((error) => this.onStatus(`Biscuit didn't load: ${(error as Error).message}`));
     // The game plays on in silence if a sound can't load.
     this.footsteps.ready.catch((error) => console.error('No footsteps:', error));
@@ -241,7 +265,7 @@ export class Game {
       <div id="transition"><div class="ink"></div><div class="sfx"></div></div>
       <div id="start" class="hidden">
         <p class="title">Click to play</p>
-        <p>Mouse (or drag) look · WASD move · Shift run · E interact · X Biscuit's tricks · V call him · T throw · Esc release</p>
+        <p>Mouse (or drag) look · WASD move · Shift run · E interact · X Biscuit's tricks · F hold and say “Biscuit, sit!” · V call him · T throw · Esc release</p>
       </div>`;
     const $ = (selector: string) => ui.querySelector<HTMLElement>(selector)!;
     return { prompt: $('#prompt'), hint: $('#hint'), transition: $('#transition'), start: $('#start'), objective: $('.game-objective') };
@@ -371,6 +395,7 @@ export class Game {
     this.layer.classList.remove('game-layer--play', 'game-layer--showcase');
     if (document.pointerLockElement === this.canvas) document.exitPointerLock();
     this.wheel.hide(); // before input goes off: closing it turns input back on
+    this.voice.hide();
     this.interactions.enabled = false;
     this.player.inputEnabled = false;
     this.world?.deactivate();
@@ -388,6 +413,7 @@ export class Game {
     if (document.pointerLockElement === this.canvas) document.exitPointerLock();
     this.ui.start?.classList.add('hidden');
     this.wheel.hide();
+    this.voice.hide();
     this.interactions.enabled = false;
     this.player.inputEnabled = false;
     this.world?.deactivate();
@@ -480,6 +506,7 @@ export class Game {
     this.scene.background = new THREE.Color(0x1b2028);
     this.quality.resize();
     this.onResize();
+    this.voice.connect(); // the socket opens while the world comes up, so the first command costs nothing
     if (this.questOn) await this.resetQuest();
     await this.enterWorld(runId);
     // Where comic panel 1 draws him: sitting on the path ahead, a little right, looking back at you.
@@ -638,12 +665,23 @@ export class Game {
 
   // ---------- Interactions ----------
 
+  /** Where Biscuit digs up the spare key in this world, if it has such a spot. */
+  private get digSpot() {
+    const runId = this.world && this.runOf.get(this.world);
+    const spot = runId ? PLACEMENTS[runId]?.digSpot : undefined;
+    return spot && new THREE.Vector3(...spot);
+  }
+
+  /** True while the quest wants the hole dug and Biscuit is free to do it. */
+  private get canDigForKey() {
+    return this.questOn && (this.questStage === 'arrive' || this.questStage === 'locked') && !this.biscuit.busy;
+  }
+
   /** What the player can use in the current world: its doors, Biscuit, the props lying in it, the dig spot and the fireplace. */
   refreshInteractions() {
     const here = this.world;
     if (!here) return;
-    const runId = this.runOf.get(here);
-    const digSpot = runId && PLACEMENTS[runId]?.digSpot;
+    const digSpot = this.digSpot;
     const fire = here === this.fireWorld ? this.fire : undefined;
     this.interactions.set([
       ...(this.doorways.get(here) ?? []).map((door) => ({
@@ -673,11 +711,11 @@ export class Game {
       ...(this.questOn && digSpot
         ? [
             {
-              target: new THREE.Vector3(...digSpot),
+              target: digSpot,
               range: 3.2,
               prompt: '“Biscuit, dig!”',
-              enabled: () => (this.questStage === 'arrive' || this.questStage === 'locked') && !this.biscuit.busy,
-              act: () => this.digForKey(new THREE.Vector3(...digSpot)),
+              enabled: () => this.canDigForKey,
+              act: () => this.digForKey(digSpot),
             },
           ]
         : []),
@@ -882,7 +920,20 @@ export class Game {
       if (this.carried.length) return this.showHint('Hands full · G to put things down first');
       return void this.pet();
     }
-    if (!this.biscuit.perform(slot.id as DogAction)) this.showHint('Biscuit’s busy right now');
+    if (!this.command(slot.id as DogAction)) this.showHint('Biscuit’s busy right now');
+  }
+
+  /**
+   * A trick, from the wheel or spoken. "Dig" next to the fresh hole is the quest's dig (the one that turns up
+   * the spare key), wherever the order came from; anywhere else it's just him pawing at the ground.
+   */
+  private command(action: DogAction) {
+    const spot = action === 'dig' && this.canDigForKey && !this.hands.busy ? this.digSpot : undefined;
+    if (spot && Math.hypot(spot.x - this.player.feet.x, spot.z - this.player.feet.z) <= DIG_RANGE) {
+      void this.digForKey(spot);
+      return true;
+    }
+    return this.biscuit.perform(action);
   }
 
   async callBiscuit() {
@@ -1123,10 +1174,13 @@ export class Game {
       else if (event.code === 'KeyT') void this.throwCarried();
       else if (event.code === 'KeyG') void this.putDownCarried();
       else if (event.code === 'KeyV') void this.callBiscuit();
+      else if (event.code === 'KeyF') void this.voice.hold();
     });
     // Letting go of X picks whatever the wheel's aimed at (unless it was a quick tap: then it stays open).
+    // Letting go of F commits what was said, so the last words still land.
     window.addEventListener('keyup', (event) => {
       if (event.code === 'KeyX') this.wheel.release();
+      else if (event.code === 'KeyF') this.voice.release();
     });
     document.addEventListener('pointermove', (event) => {
       if (!this.wheel.isOpen) return;
