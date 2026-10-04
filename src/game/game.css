@@ -197,3 +197,121 @@
 .game-layer--hidden {
   display: none;
 }
+
+/* ---------- The emote wheel (hold X): Biscuit's tricks on a ring next to him ---------- */
+
+.emote-wheel {
+  --size: 380px;
+  position: fixed;
+  z-index: 15;
+  width: var(--size);
+  height: var(--size);
+  margin: calc(var(--size) / -2) 0 0 calc(var(--size) / -2);
+  border-radius: 50%;
+  display: none;
+}
+
+.emote-wheel.is-open {
+  display: block;
+  animation: emote-wheel-in 0.16s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+
+@keyframes emote-wheel-in {
+  from {
+    opacity: 0;
+    transform: scale(0.7) rotate(-12deg);
+  }
+}
+
+/* The ring: inked, a little see-through, with a comic drop shadow. */
+.emote-wheel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 4px solid var(--game-ink);
+  background:
+    radial-gradient(circle, rgb(255 236 200 / 8%) 25%, transparent 28%) 0 0 / 9px 9px,
+    radial-gradient(circle, transparent 0 33%, rgb(20 12 18 / 78%) 33.5% 100%);
+  box-shadow: 8px 8px 0 rgb(20 12 18 / 45%);
+}
+
+/* The wedge behind whatever's aimed at. */
+.emote-wheel::after {
+  content: '';
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  background: conic-gradient(from var(--wedge, 0deg), var(--game-sfx-yellow) 0 var(--span), transparent var(--span));
+  -webkit-mask-image: radial-gradient(circle, transparent 0 34%, #000 34.5%);
+  mask-image: radial-gradient(circle, transparent 0 34%, #000 34.5%);
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+
+.emote-wheel.has-pick::after {
+  opacity: 1;
+}
+
+.emote-wheel__slot {
+  position: absolute;
+  z-index: 1;
+  left: 50%;
+  top: 50%;
+  width: 76px;
+  margin: -27px 0 0 -38px;
+  padding: 0;
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  border: 0;
+  background: none;
+  color: #fff9e9;
+  font: 15px/1 var(--game-comic-font);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  text-shadow: 2px 2px 0 var(--game-ink);
+  transform: translate(var(--x), var(--y));
+  transition: transform 0.12s ease, color 0.12s ease;
+  cursor: pointer;
+}
+
+.emote-wheel__slot b {
+  font: 26px/1 system-ui, sans-serif;
+}
+
+.emote-wheel__slot.is-picked {
+  color: var(--game-ink);
+  text-shadow: none;
+  transform: translate(var(--x), var(--y)) scale(1.18);
+}
+
+.emote-wheel__centre {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 118px;
+  height: 118px;
+  transform: translate(-50%, -50%) rotate(-3deg);
+  border-radius: 50%;
+  display: grid;
+  place-content: center;
+  gap: 4px;
+  text-align: center;
+  border: 4px solid var(--game-ink);
+  background: #fff3b8;
+  color: var(--game-ink);
+  box-shadow: 3px 3px 0 var(--game-ink);
+}
+
+.emote-wheel__centre small {
+  color: var(--game-sfx-red);
+  font: 13px/1 var(--game-comic-font);
+  letter-spacing: 0.12em;
+}
+
+.emote-wheel__centre strong {
+  min-height: 1em;
+  font: 24px/1 var(--game-comic-font);
+  letter-spacing: 0.04em;
+}

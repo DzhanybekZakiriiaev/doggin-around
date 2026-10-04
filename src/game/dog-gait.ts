@@ -143,6 +143,12 @@ export class DogGait {
     this.apply(0);
   }
 
+  /** Hands the legs straight back to the clip, without the fade (a trick that has to start now). */
+  letGo() {
+    this.active = false;
+    this.weight = 0;
+  }
+
   /** Called by the Dog after the clip pose and before skinning. */
   apply(dt: number) {
     this.weight = THREE.MathUtils.clamp(this.weight + (this.active ? dt : -dt) / FADE_SECONDS, 0, 1);

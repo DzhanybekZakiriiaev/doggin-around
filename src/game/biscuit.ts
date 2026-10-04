@@ -2,7 +2,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import { SplatMesh } from '@sparkjsdev/spark';
 import * as THREE from 'three';
 import { DogGait, type RigSpec } from './dog-gait';
-import { Dog, type DogAction } from './dog/dog';
+import { Dog, DOG_ACTIONS, type DogAction, type DogView } from './dog/dog';
 import type { Mood } from './lighting';
 import type { Prop } from './props';
 
@@ -35,8 +35,10 @@ const MOOD_TINT: Record<Mood | 'studio', THREE.Color> = {
   studio: new THREE.Color(1, 1, 1), // the menu: as captured
 };
 const DIG_SECONDS = 3.2;
+const BLEND = 0.3; // seconds between clips, as the Dog does it
+const TRICK_BLEND = 0.12; // into a trick from the wheel: snappier
 
-type Mode = 'follow' | 'chase' | 'pickup' | 'return' | 'petted' | 'dig' | 'stage';
+type Mode = 'follow' | 'chase' | 'pickup' | 'return' | 'petted' | 'dig' | 'stage' | 'perform';
 
 export class Biscuit {
   readonly group = new THREE.Group();
@@ -74,7 +76,7 @@ export class Biscuit {
     private readonly physics: RAPIER.World,
   ) {
     this.dog = new Dog(renderer);
-    this.group.add(this.dog.group);
+    this.group.add(this.dog.group, this.studio);
     this.group.visible = false; // until he's loaded and standing in a world
     this.ready = this.load();
   }
@@ -144,6 +146,12 @@ export class Biscuit {
   stage(heading: number) {
     this.dropFetch();
     this.mode = 'stage';
+    this.presenting = undefined;
+    this.studio.visible = false;
+    this.dog.paused = false;
+    this.dog.setView('splats');
+    this.dog.setXray(false);
+    this.dog.showRig(false);
     this.group.position.set(0, 0, 0);
     this.group.rotation.y = heading;
     this.lastPosition.copy(this.group.position);
@@ -153,6 +161,44 @@ export class Biscuit {
     this.group.visible = this.loaded;
     this.play('idle');
   }
+
+  /**
+   * The menu's pipeline: on the stand (after `stage`), shown as `view` (his splats, or the mesh they're
+   * skinned to) with the rig lit up inside or not, doing `action` in place (frozen if `still`), turning at
+   * `turnRate` radians a second or held at `heading`. His own clips play: the walk and run are the ones the
+   * IK gait rebuilt (npm run dog-clips), so the legs move as they do in the game.
+   */
+  present(look: {
+    view: DogView;
+    rig: boolean;
+    action: DogAction;
+    /** The mesh see-through, so the rig shows inside it. */
+    xray?: boolean;
+    still?: boolean;
+    turnRate?: number;
+    heading?: number;
+  }) {
+    if (!this.loaded || this.mode !== 'stage') return;
+    this.presenting = { action: look.action, turnRate: look.turnRate ?? 0 };
+    this.studio.visible = look.view === 'mesh'; // the bare mesh has no light of its own, unlike the splats
+    this.dog.setView(look.view);
+    this.dog.setXray(!!look.xray);
+    this.dog.showRig(look.rig);
+    if (look.heading !== undefined) this.group.rotation.y = look.heading;
+    this.play(look.action);
+    this.dog.paused = !!look.still;
+  }
+
+  private presenting?: { action: DogAction; turnRate: number };
+  /** Lights for the mesh on the pipeline's stand (the worlds' lights are dim dusk or lamplight). */
+  private readonly studio = (() => {
+    const lights = new THREE.Group();
+    const key = new THREE.DirectionalLight(0xffffff, 2.6);
+    key.position.set(1.5, 2.5, 2);
+    lights.add(new THREE.HemisphereLight(0xffffff, 0x6b5a4a, 1.8), key);
+    lights.visible = false;
+    return lights;
+  })();
 
   /** Turns him on the menu stand (drag to spin). */
   spin(radians: number) {
@@ -261,6 +307,27 @@ export class Biscuit {
     this.idleTime = 0;
   }
 
+  /**
+   * A trick from the emote wheel: he stops, turns to the player and does `action` (a one-off clip plays
+   * through once, sitting holds for a moment, the looping ones run a couple of seconds), then carries on
+   * following. False if he's in the middle of something that can't be interrupted (digging up the key,
+   * being petted).
+   */
+  perform(action: DogAction): boolean {
+    if (!this.loaded || this.mode === 'petted' || this.mode === 'dig' || this.mode === 'stage') return false;
+    this.dropFetch(true);
+    const playback = DOG_ACTIONS.find((candidate) => candidate.name === action)?.playback;
+    this.mode = 'perform';
+    this.timer = playback === 'once' ? Math.max(0.8, this.dog.clipDuration(action)) + 0.25 : playback === 'hold' ? 3 : 2.6;
+    this.walkingGait = undefined;
+    this.idleTime = 0;
+    // Straight into it: a short cross-fade (play), and legs that leave the ground go to the clip at once.
+    if (!PLANTED.includes(action)) this.gait?.letGo();
+    if (action === 'bark') this.barkTwice();
+    else this.play(action);
+    return true;
+  }
+
   update(dt: number, player: THREE.Vector3) {
     if (!this.loaded || !this.placed) return;
     this.updateBarks(dt);
@@ -268,6 +335,14 @@ export class Biscuit {
 
     switch (this.mode) {
       case 'stage':
+        if (this.presenting) {
+          // The pipeline's turntable: his clip in place, the legs as the clip has them (no ground to plant on).
+          this.group.rotation.y += this.presenting.turnRate * dt;
+          if (this.dog.action !== this.presenting.action) this.play(this.presenting.action);
+          if (this.gait) this.gait.active = false;
+          this.dog.update(dt);
+          return;
+        }
         // Idle, with a wag now and then; sitting after a long wait looks like he's bored of the menu.
         this.idleTime += dt;
         if (this.dog.action === 'idle' && this.idleTime > 7) {
@@ -292,13 +367,13 @@ export class Biscuit {
             this.faceToward(this.digSpot, dt);
             if (Math.abs(this.headingError(this.headingTo(this.digSpot))) < 0.2) {
               this.timer = 0;
-              this.dog.playAction('paw');
+              this.dog.playAction('dig');
             }
           }
         } else {
           this.timer += dt;
-          // The paw clip is one scrape; keep scraping until done.
-          if (this.dog.action !== 'paw' && this.timer < DIG_SECONDS - 0.6) this.dog.playAction('paw');
+          // Larry's dig clip loops; keep at it until done.
+          if (this.dog.action !== 'dig' && this.timer < DIG_SECONDS - 0.6) this.dog.playAction('dig');
           if (this.timer >= DIG_SECONDS) {
             this.mode = 'follow';
             this.play('wag');
@@ -310,6 +385,15 @@ export class Biscuit {
         break;
       case 'follow':
         this.follow(dt, player);
+        break;
+      case 'perform':
+        // The trick plays where he stands, as he stands (turning mid-flip would twist it); then back to following.
+        this.timer -= dt;
+        if (this.timer <= 0) {
+          this.mode = 'follow';
+          this.play('wag');
+          this.idleTime = 0;
+        }
         break;
       case 'chase': {
         const prop = this.fetching;
@@ -471,6 +555,7 @@ export class Biscuit {
   }
 
   private play(action: DogAction) {
+    this.dog.blendSeconds = this.mode === 'perform' ? TRICK_BLEND : BLEND; // tricks from the wheel start snappier
     if (this.dog.actionRate !== 1) this.dog.setActionRate(1);
     if (this.dog.action !== action) this.dog.playAction(action);
   }
