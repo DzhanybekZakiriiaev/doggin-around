@@ -84,17 +84,24 @@ const FILLERS = new Set([
 
 /**
  * Written in spoken form, normalized at load so fillers line up. Every action
- * is one of Biscuit's clips (DOG_ACTIONS); the rest are things the game does
- * with him. Walking and running are left out on purpose: he follows the player
- * by himself, and "go over there" needs a world model this parser lacks.
+ * is one of Biscuit's clips (DOG_ACTIONS), the same tricks as the emote wheel;
+ * the rest are things the game does with him. Walking and running are the
+ * clips played on the spot, as the wheel does: he follows the player by
+ * himself, and "go over there" needs a world model this parser lacks.
+ * A companion without a clip does the nearest one he has (biscuit.ts).
  */
 const SPOKEN: [string, VoiceIntent][] = [
   ["idle", { kind: "action", action: "idle" }],
   ["stay", { kind: "action", action: "idle" }],
   ["stay there", { kind: "action", action: "idle" }],
   ["wait", { kind: "action", action: "idle" }],
-  ["stand", { kind: "action", action: "idle" }],
-  ["stand up", { kind: "action", action: "idle" }],
+  ["walk", { kind: "action", action: "walk" }],
+  ["walk around", { kind: "action", action: "walk" }],
+  ["run", { kind: "action", action: "run" }],
+  ["run around", { kind: "action", action: "run" }],
+  ["zoomies", { kind: "action", action: "run" }],
+  ["stand", { kind: "action", action: "stand" }],
+  ["stand up", { kind: "action", action: "stand" }],
   ["settle", { kind: "action", action: "idle" }],
   ["settle down", { kind: "action", action: "idle" }],
   ["relax", { kind: "action", action: "idle" }],
@@ -114,16 +121,55 @@ const SPOKEN: [string, VoiceIntent][] = [
   ["do a backflip", { kind: "action", action: "backflip" }],
   ["somersault", { kind: "action", action: "backflip" }],
   ["bark", { kind: "action", action: "bark" }],
-  ["speak", { kind: "action", action: "bark" }],
+  ["speak", { kind: "action", action: "speak" }],
   ["talk", { kind: "action", action: "bark" }],
   ["woof", { kind: "action", action: "bark" }],
   ["say something", { kind: "action", action: "bark" }],
   ["paw", { kind: "action", action: "paw" }],
-  ["shake", { kind: "action", action: "paw" }],
-  ["shake hands", { kind: "action", action: "paw" }],
-  ["shake a paw", { kind: "action", action: "paw" }],
-  ["high five", { kind: "action", action: "paw" }],
   ["give me your paw", { kind: "action", action: "paw" }],
+  ["shake", { kind: "action", action: "shake" }],
+  ["shake hands", { kind: "action", action: "shake" }],
+  ["shake a paw", { kind: "action", action: "shake" }],
+  ["high five", { kind: "action", action: "highfive" }],
+  ["highfive", { kind: "action", action: "highfive" }],
+  ["give me five", { kind: "action", action: "highfive" }],
+  ["touch", { kind: "action", action: "touch" }],
+  ["touch it", { kind: "action", action: "touch" }],
+  ["nose touch", { kind: "action", action: "touch" }],
+  ["down", { kind: "action", action: "down" }],
+  ["lie down", { kind: "action", action: "down" }],
+  ["lay down", { kind: "action", action: "down" }],
+  ["get down", { kind: "action", action: "down" }],
+  ["quiet", { kind: "action", action: "quiet" }],
+  ["be quiet", { kind: "action", action: "quiet" }],
+  ["hush", { kind: "action", action: "quiet" }],
+  ["shush", { kind: "action", action: "quiet" }],
+  ["roll over", { kind: "action", action: "rollover" }],
+  ["rollover", { kind: "action", action: "rollover" }],
+  ["roll", { kind: "action", action: "rollover" }],
+  ["crawl", { kind: "action", action: "crawl" }],
+  ["army crawl", { kind: "action", action: "crawl" }],
+  ["back up", { kind: "action", action: "backup" }],
+  ["backup", { kind: "action", action: "backup" }],
+  ["back off", { kind: "action", action: "backup" }],
+  ["go back", { kind: "action", action: "backup" }],
+  ["beg", { kind: "action", action: "beg" }],
+  ["sit pretty", { kind: "action", action: "beg" }],
+  ["pretty", { kind: "action", action: "beg" }],
+  ["play dead", { kind: "action", action: "playdead" }],
+  ["playdead", { kind: "action", action: "playdead" }],
+  ["bang", { kind: "action", action: "playdead" }],
+  ["weave", { kind: "action", action: "weave" }],
+  ["leg weave", { kind: "action", action: "weave" }],
+  ["leg weaves", { kind: "action", action: "weave" }],
+  ["figure eight", { kind: "action", action: "weave" }],
+  ["hold", { kind: "action", action: "hold" }],
+  ["hold it", { kind: "action", action: "hold" }],
+  ["hold this", { kind: "action", action: "hold" }],
+  ["gangnam", { kind: "action", action: "gangnam" }],
+  ["gangnam style", { kind: "action", action: "gangnam" }],
+  ["gang nam", { kind: "action", action: "gangnam" }],
+  ["gang nam style", { kind: "action", action: "gangnam" }],
   ["spin", { kind: "action", action: "spin" }],
   ["spin around", { kind: "action", action: "spin" }],
   ["twirl", { kind: "action", action: "spin" }],
@@ -245,10 +291,12 @@ for (const [spoken, intent] of SPOKEN) {
 /**
  * Keywords held out of the fuzzy repair below, because a near miss on one of
  * them lands between two intents: "set" is one edit from both "sit" and "pet",
- * and "pat" is one edit from "paw". Spoken as they are they still match; only
- * the guessing is switched off for them.
+ * and "pat" is one edit from "paw". Others sit one edit from everyday words
+ * ("big" and "bed" from beg, "hole" from hold, "couch" from touch, "rub" from
+ * run, "bag" from bang, "role" from roll). Spoken as they are they still
+ * match; only the guessing is switched off for them.
  */
-const EXACT_ONLY = new Set(["pet", "pat"])
+const EXACT_ONLY = new Set(["pet", "pat", "beg", "hold", "touch", "run", "bang", "roll"])
 
 const KEYWORDS = [...PHRASES].filter(
   ([phrase]) => !phrase.includes(" ") && !EXACT_ONLY.has(phrase),

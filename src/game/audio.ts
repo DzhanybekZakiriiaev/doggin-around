@@ -217,6 +217,8 @@ export class OneShot {
   readonly ready: Promise<void>;
   private clip?: AudioBuffer;
   private readonly gain: GainNode;
+  /** What's playing, each through its own gain so `stop` can fade it out. */
+  private readonly playing = new Map<AudioBufferSourceNode, GainNode>();
 
   constructor(url: string, volume = 1) {
     const ctx = audioContext();
@@ -234,14 +236,32 @@ export class OneShot {
     this.gain.gain.value = Math.min(Math.max(level, 0), 1);
   }
 
+  /** How long it runs, in seconds; 0 until it has loaded. */
+  get duration() {
+    return this.clip?.duration ?? 0;
+  }
+
   /** Plays it from the top. Overlapping calls layer rather than cut one another off. */
   play() {
     const ctx = audioContext();
     if (!this.clip || ctx.state !== 'running') return;
     const source = ctx.createBufferSource();
+    const level = ctx.createGain();
     source.buffer = this.clip;
-    source.connect(this.gain);
+    source.connect(level).connect(this.gain);
+    source.onended = () => this.playing.delete(source);
+    this.playing.set(source, level);
     source.start();
+  }
+
+  /** Cuts off whatever of it is still playing, with a short fade rather than a click. */
+  stop(fadeSeconds = 0.12) {
+    const ctx = audioContext();
+    for (const [source, level] of this.playing) {
+      ramp(level.gain, 0, fadeSeconds);
+      source.stop(ctx.currentTime + (ctx.state === 'running' ? fadeSeconds : 0));
+    }
+    this.playing.clear();
   }
 }
 

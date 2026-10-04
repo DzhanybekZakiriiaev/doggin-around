@@ -6,6 +6,7 @@ import { Dog, DOG_ACTIONS, type DogAction, type DogView } from './dog/dog';
 import type { Mood } from './lighting';
 import type { Prop } from './props';
 import { COMPANIONS, companionSkills, type CompanionId } from './companions'
+import { OneShot } from './audio';
 
 // Biscuit: the game-side behaviour around Larry's animated splat dog (src/dog, from larry/dogmodels).
 // The Dog plays its clips in place; this moves him through the world (following the player, fetching
@@ -37,6 +38,16 @@ const MOOD_TINT: Record<Mood | 'studio', THREE.Color> = {
 const DIG_SECONDS = 3.2;
 const BLEND = 0.3; // seconds between clips, as the Dog does it
 const TRICK_BLEND = 0.28
+/** Asked (by voice) for a trick he has no clip for (Wei has the first dozen), he does the nearest he has. */
+const STAND_INS: Partial<Record<DogAction, DogAction>> = {
+  stand: 'idle',
+  down: 'sit',
+  beg: 'sit',
+  shake: 'paw',
+  highfive: 'paw',
+  touch: 'paw',
+  speak: 'bark',
+}
 
 type Mode = 'follow' | 'chase' | 'pickup' | 'return' | 'petted' | 'dig' | 'stage' | 'perform';
 
@@ -69,6 +80,9 @@ export class Biscuit {
   private petArrived = false;
   private barks: number[] = [];
   private readonly bark = new Audio('/audio/dog-bark.ogg');
+  /** Gangnam style's opening, for as long as he dances to it; any other clip cuts it off. */
+  private readonly gangnam = new OneShot('/audio/gangnam-style.mp3', 0.7);
+  private dancing = false
   private readonly ray = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
   private tint = MOOD_TINT.dusk;
   private readonly lastPosition = new THREE.Vector3();
@@ -362,13 +376,22 @@ export class Biscuit {
    * being petted).
    */
   perform(action: DogAction): boolean {
-    if (!this.loaded || this.mode === 'petted' || this.mode === 'dig' || !this.skills.some(skill => skill.id === action)) return false
+    const knows = (clip: DogAction) => this.skills.some((skill) => skill.id === clip)
+    if (!knows(action)) action = STAND_INS[action] ?? action
+    if (!this.loaded || this.mode === 'petted' || this.mode === 'dig' || !knows(action)) return false
     this.dropFetch(true);
     const playback = DOG_ACTIONS.find((candidate) => candidate.name === action)?.playback;
     this.stageTrick = this.mode === 'stage'
     if (!this.stageTrick) this.mode = 'perform'
     this.timer = playback === 'once' ? Math.max(0.8, this.dog.clipDuration(action)) + 0.25 : playback === 'hold' ? 3 : 2.6;
     if (this.stageTrick && playback !== 'once') this.timer = Infinity
+    // Gangnam style lasts as long as its music, on the menu too.
+    this.gangnam.stop()
+    this.dancing = action === 'gangnam'
+    if (this.dancing) {
+      this.gangnam.play()
+      this.timer = Math.max(2.6, this.gangnam.duration)
+    }
     this.walkingGait = undefined;
     this.idleTime = 0;
     this.travelSpeed = 0
@@ -384,6 +407,11 @@ export class Biscuit {
   }
 
   update(dt: number, player: THREE.Vector3) {
+    // However the dance ended (its time up, called over, petted, taken out of the world), so does its music.
+    if (this.dancing && (this.dog.action !== 'gangnam' || !this.loaded || !this.placed)) {
+      this.dancing = false
+      this.gangnam.stop()
+    }
     if (!this.loaded || !this.placed) return;
     this.updateBarks(dt);
     this.moving = false;

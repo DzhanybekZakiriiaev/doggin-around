@@ -34,20 +34,44 @@ heard('sit', ['sit']);
 heard('Biscuit, sit!', ['sit']);
 heard('Um, okay, sit down please', ['sit']);
 heard('stay', ['idle']);
-heard('stand up', ['idle']);
+heard('stand up', ['stand']);
 heard('jump', ['jump']);
 heard('jump up', ['jump']);
 heard('do a backflip', ['backflip']);
 heard('flip', ['backflip']);
 heard('bark', ['bark']);
-heard('speak', ['bark']);
+heard('speak', ['speak']);
 heard('spin around', ['spin']);
 heard('turn around', ['spin']);
 heard('play bow', ['playbow']);
 heard('bow', ['playbow']);
-heard('shake hands', ['paw']);
+heard('shake hands', ['shake']);
 heard('give me your paw', ['paw']);
-heard('high five', ['paw']);
+heard('high five', ['highfive']);
+heard('lie down', ['down']);
+heard('sit down', ['sit']);
+heard('touch', ['touch']);
+heard('be quiet', ['quiet']);
+heard('roll over', ['rollover']);
+heard('crawl', ['crawl']);
+heard('back up', ['backup']);
+heard('come back', ['come']);
+heard('sit pretty', ['beg']);
+heard('beg', ['beg']);
+heard('play dead', ['playdead']);
+heard('bang!', ['playdead']);
+heard('leg weaves', ['weave']);
+heard('hold it', ['hold']);
+heard('Biscuit, Gangnam style!', ['gangnam']);
+heard('gang nam style', ['gangnam']);
+heard('gangham style', ['gangnam']);
+// Only its own name starts Gangnam style (and its music).
+heard('dance', []);
+heard('dance for me', []);
+heard('party', []);
+heard('walk', ['walk']);
+heard('walk with me', ['come']);
+heard('run around', ['run']);
 heard('dig', ['dig']);
 heard('Biscuit, dig!', ['dig']);
 heard('dig it up', ['dig']);
@@ -76,12 +100,17 @@ for (const [spoken, meant] of [
   ['dug', 'dig'],
   ['digs', 'dig'],
   ['flipping', 'backflip'],
+  ['rolling', 'rollover'],
+  ['crawling', 'crawl'],
+  ['begging', 'beg'],
 ] as const)
   heard(spoken, [meant]);
 
 console.log('guesses it must refuse');
-// "park" is one edit from bark, "it" from sit, "top" from stop, "pow" from both paw and bow.
-for (const word of ['park', 'fun', 'it', 'balk', 'top', 'pow', 'wig', 'big', 'get', 'let']) heard(word, []);
+// "park" is one edit from bark, "it" from sit, "top" from stop, "pow" from both paw and bow; "big" and "bed"
+// from beg, "hole" from hold, "couch" from touch, "rub" from run, "bag" from bang, "role" from roll.
+for (const word of ['park', 'fun', 'it', 'balk', 'top', 'pow', 'wig', 'big', 'get', 'let', 'bed', 'hole', 'couch', 'rub', 'bag', 'role'])
+  heard(word, []);
 
 console.log('sequences, repeats and nonsense');
 heard('sit then bark then spin', ['sit', 'bark', 'spin']);
@@ -106,29 +135,45 @@ for (const [text, escalate] of [
 ] as const)
   if (parseUtterance(text).escalate !== escalate) fail(`escalate “${text}” → ${!escalate}`);
 
-console.log('supported spoken tricks still match the current dog actions')
-// Walking and running are left out of the table on purpose: he follows the player by himself.
+console.log('every trick on the emote wheel can be asked for out loud')
+// Peekaboo is on no companion's wheel (Hua's clip is left out, Wei has none), so it has nothing to say to it.
 const SPOKEN_FOR: Record<string, string | null> = {
   idle: 'stay',
-  walk: null,
-  run: null,
+  walk: 'walk',
+  run: 'run',
   sit: 'sit',
   jump: 'jump',
   backflip: 'backflip',
   bark: 'bark',
-  paw: 'shake hands',
+  paw: 'give me your paw',
   spin: 'spin around',
   playbow: 'play bow',
   sniff: 'sniff around',
   dig: 'dig',
   wag: 'good boy',
+  stand: 'stand up',
+  down: 'lie down',
+  shake: 'shake hands',
+  highfive: 'high five',
+  touch: 'touch',
+  speak: 'speak',
+  quiet: 'quiet',
+  rollover: 'roll over',
+  crawl: 'crawl',
+  backup: 'back up',
+  beg: 'beg',
+  playdead: 'play dead',
+  peekaboo: null,
+  weave: 'weave',
+  hold: 'hold it',
+  gangnam: 'gangnam style',
 };
 if (!DOG_ACTIONS.length) fail('no clips found in dog.ts');
+for (const action of DOG_ACTIONS) if (!(action in SPOKEN_FOR)) fail(`${action} is a clip with nothing to say to it`);
 for (const [action, phrase] of Object.entries(SPOKEN_FOR)) {
   if (!DOG_ACTIONS.includes(action)) fail(`${action} is no longer a dog action`)
   if (phrase === null) continue;
-  if (phrase === undefined) fail(`${action} is a clip with nothing to say to it`);
-  else if (intents(phrase)[0] !== action) fail(`“${phrase}” does not reach ${action}`);
+  if (intents(phrase)[0] !== action) fail(`“${phrase}” does not reach ${action}`);
 }
 
 console.log('a partial fires once, and the commit does not repeat it');
