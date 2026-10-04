@@ -596,17 +596,28 @@ export class Biscuit {
     this.turnTo(heading, dt);
     const facing = Math.max(0, Math.cos(this.headingError(heading)));
     const remaining = Math.max(0, distance - stopAt)
-    const targetSpeed = Math.min(SPEED[gait], remaining * 3) * facing
+    const cadence = this.dog.gaitCadence?.[gait]
+    const strideSpeed = cadence ? cadence.travelSpeed * this.dog.group.scale.z : SPEED[gait]
+    // Keep recorded strides at a natural cadence and match travel to their foot speed.
+    const cadenceLimit = gait === 'walk' ? 1.8 : 3.2
+    const cruiseSpeed = cadence && !this.gait
+      ? Math.min(SPEED[gait], strideSpeed * cadenceLimit / cadence.cyclesPerSecond)
+      : SPEED[gait]
+    const targetSpeed = Math.min(cruiseSpeed, remaining * 3) * facing
     this.travelSpeed = THREE.MathUtils.damp(this.travelSpeed, targetSpeed, 7, dt)
     const travel = Math.min(remaining, this.travelSpeed * dt)
     this.group.position.addScaledVector(direction, travel / distance);
-    this.walkingGait = gait;
+    // Finish slowing down before asking a short walking stride to carry running speed.
+    const animationGait = cadence && !this.gait && gait === 'walk' && this.walkingGait === 'run'
+      && this.travelSpeed > cruiseSpeed * 1.01 ? 'run' : gait
+    this.walkingGait = animationGait
     this.moving = true;
     if (this.gait) {
       if (this.dog.action !== 'wag' && this.dog.action !== 'idle') this.play('wag')
     } else {
-      const strideSpeed = (this.dog.gaitCadence?.[gait].travelSpeed ?? SPEED[gait]) * this.dog.group.scale.z
-      this.play(gait, Math.max(0.15, travel / Math.max(dt, 0.001) / strideSpeed))
+      const animationStride = this.dog.gaitCadence?.[animationGait]
+      const footSpeed = animationStride ? animationStride.travelSpeed * this.dog.group.scale.z : strideSpeed
+      this.play(animationGait, Math.max(0.15, travel / Math.max(dt, 0.001) / footSpeed))
     }
     return false;
   }

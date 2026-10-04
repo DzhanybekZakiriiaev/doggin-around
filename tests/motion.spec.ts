@@ -99,3 +99,71 @@ test('Wei keeps the outgoing stride moving and preserves phase across gait chang
   dog.update(0)
   expect(Array.from(dog.faceBasePositions)).toEqual(Array.from(beforeInterrupt))
 })
+
+test('Hua paws keep continuous velocity at lift-off and touchdown', async () => {
+  const { pawCycle } = await import('../src/game/dog-gait')
+  const h = 1e-5
+  for (const duty of [0.42, 0.52, 0.62]) {
+    for (const boundary of [0, duty, 1]) {
+      const before = pawCycle(boundary - h, duty)
+      const at = pawCycle(boundary, duty)
+      const after = pawCycle(boundary + h, duty)
+      for (const axis of ['along', 'lift'] as const) {
+        expect(Math.abs((at[axis] - before[axis]) / h - (after[axis] - at[axis]) / h)).toBeLessThan(0.002)
+      }
+    }
+    for (let phase = 0; phase < duty; phase += 0.01) {
+      expect(pawCycle(phase, duty).lift).toBe(0)
+      expect(pawCycle(phase, duty).along).toBeCloseTo(phase / duty - 0.5, 8)
+    }
+  }
+})
+
+test('Wei gait interpolation keeps loop velocity continuous without contact overshoot', async () => {
+  const { sampleBakedClip } = await import('../src/game/dog/faceDeformation')
+  const values = [0, 0.4, 1, 0.5, 0, -0.5, -1, -0.4, 0]
+  const times = Float32Array.from(values, (_, index) => index / 8)
+  const clip = { name: 'walk', duration: 1, times, positions: Float32Array.from(values) }
+  const result = new Float32Array(1)
+  const sample = (time: number) => sampleBakedClip(clip, ((time % 1) + 1) % 1, result)[0]
+  const h = 0.0001
+  for (const time of times) {
+    const incoming = (sample(time) - sample(time - h)) / h
+    const outgoing = (sample(time + h) - sample(time)) / h
+    expect(Math.abs(incoming - outgoing)).toBeLessThan(0.03)
+  }
+  for (let segment = 0; segment < values.length - 1; segment++) {
+    for (let step = 0; step <= 20; step++) {
+      const value = sample((segment + step / 20) / 8)
+      expect(value).toBeGreaterThanOrEqual(Math.min(values[segment], values[segment + 1]) - 1e-6)
+      expect(value).toBeLessThanOrEqual(Math.max(values[segment], values[segment + 1]) + 1e-6)
+    }
+  }
+  clip.name = 'jump'
+  expect(sample(0.03)).toBeCloseTo(0.096)
+})
+
+test('Wei travel matches its recorded stride at a bounded cadence', () => {
+  for (const gait of ['walk', 'run'] as const) {
+    const dog = controller()
+    dog.dog.group.scale.z = 0.85 / 2.6
+    dog.dog.gaitCadence = {
+      walk: { cyclesPerSecond: 1 / 1.2, travelSpeed: 0.5554858 },
+      run: { cyclesPerSecond: 2, travelSpeed: 2.5384731 },
+    }
+    const target = new THREE.Vector3(0, 0, -100)
+    for (let frame = 0; frame < 240; frame++) dog.moveToward(target, gait, 1 / 60, 0)
+    const cadence = dog.dog.gaitCadence[gait]
+    expect(dog.dog.actionRate * cadence.cyclesPerSecond).toBeLessThanOrEqual(gait === 'walk' ? 1.8 : 3.2)
+    expect(dog.dog.actionRate * cadence.travelSpeed * dog.dog.group.scale.z).toBeCloseTo(dog.travelSpeed, 6)
+    expect(dog.travelSpeed).toBeGreaterThan(gait === 'walk' ? 0.38 : 1.3)
+    if (gait === 'run') {
+      for (let frame = 0; frame < 120; frame++) {
+        dog.moveToward(target, 'walk', 1 / 60, 0)
+        const playing = dog.dog.gaitCadence[dog.dog.action]
+        expect(dog.dog.actionRate * playing.cyclesPerSecond).toBeLessThanOrEqual(dog.dog.action === 'walk' ? 1.82 : 3.2)
+      }
+      expect(dog.dog.action).toBe('walk')
+    }
+  }
+})
