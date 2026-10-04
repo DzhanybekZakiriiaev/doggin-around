@@ -18,7 +18,9 @@ export class MarbleWorld {
   readonly root = new THREE.Group();
   readonly colliderView: THREE.Group;
   readonly scale: number;
-  private readonly splat: SplatMesh;
+  private splat: SplatMesh;
+  /** A sharper splat, loaded and waiting to replace `splat` the next time the world is off screen. */
+  private sharper?: { splat: SplatMesh; swapped: () => void };
   private readonly body: RAPIER.RigidBody;
 
   private constructor(splat: SplatMesh, colliderView: THREE.Group, scale: number, body: RAPIER.RigidBody) {
@@ -85,6 +87,34 @@ export class MarbleWorld {
     return world;
   }
 
+  /**
+   * Loads the same world at a higher splat resolution in the background and swaps it in while the world
+   * is off screen (now, or the next time it's left), so nobody sees it pop. `swapped` runs after the swap.
+   */
+  async upgrade(run: WorldRun, resolution: string, swapped: () => void = () => {}) {
+    const splat = new SplatMesh({ url: `${run.baseUrl}splats_${resolution}.spz`, lod: true });
+    await splat.initialized;
+    splat.recolor.copy(this.splat.recolor);
+    this.sharper = { splat, swapped };
+    if (!this.root.parent) this.swapSplats();
+  }
+
+  private swapSplats() {
+    if (!this.sharper) return;
+    const { splat, swapped } = this.sharper;
+    this.sharper = undefined;
+    this.splat.parent?.add(splat);
+    this.splat.removeFromParent();
+    this.splat.dispose();
+    this.splat = splat;
+    swapped();
+  }
+
+  /** Multiplies the painted colours (the cabin cold before the fire, warm after). */
+  setTint(color: THREE.Color) {
+    this.splat.recolor.copy(color);
+  }
+
   /** Where the panorama camera stood, in world coordinates. */
   get panoOrigin(): THREE.Vector3 {
     return this.colliderView.parent!.position.clone();
@@ -149,12 +179,14 @@ export class MarbleWorld {
   deactivate() {
     this.root.removeFromParent();
     this.body.setEnabled(false);
+    this.swapSplats();
   }
 
   dispose(physics: RAPIER.World) {
     physics.removeRigidBody(this.body);
     this.root.removeFromParent();
     this.splat.dispose();
+    this.sharper?.splat.dispose();
     this.colliderView.traverse((object) => {
       if (object instanceof THREE.Mesh) object.geometry.dispose();
     });

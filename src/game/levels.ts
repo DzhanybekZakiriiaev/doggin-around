@@ -38,6 +38,13 @@ export interface PropPlacement {
   at: [number, number, number];
 }
 
+/** A box where no rain falls (`size` in metres, turned `yaw` about Y): roofs the collider has holes in. */
+export interface RainShelter {
+  center: [number, number, number];
+  size: [number, number, number];
+  yaw: number;
+}
+
 export interface Placements {
   doors: DoorPlacement[];
   props?: PropPlacement[];
@@ -45,16 +52,31 @@ export interface Placements {
   digSpot?: [number, number, number];
   /** Storm Night: where he sits when the game starts (as comic panel 1 draws him). */
   biscuitStart?: [number, number, number];
+  /** Storm Night: the cold grate the branches go on, where the fire is lit. */
+  fireplace?: [number, number, number];
+  /**
+   * Marble only builds the collider from what the panorama saw, so roofs have holes (the house's inside and
+   * parts of the porch roof are missing) and rain would fall through them: these boxes keep it out.
+   */
+  rainShelters?: RainShelter[];
 }
 
 export const PLACEMENTS: Record<string, Placements> = {
   // Yard A: big stump, mailbox
   'yard-single/2026-10-04T02-05-08_standard_77b1c400': {
+    // Storm Night's firewood: one either side of the path, both in view from where you start (and outlined
+    // in orange) so the demo doesn't turn into a search; Biscuit fetches them too.
     props: [
-      { kind: 'stick', at: [0.7, 0.5, -2.4] },
+      { kind: 'branch', at: [-3.4, 0.6, -4.6] },
+      { kind: 'branch', at: [3.8, 0.6, -4.4] },
     ],
     digSpot: [1.69, -0.08, -4.76], // the freshly dug hole right of the porch steps
     biscuitStart: [0.95, 0, -4.1], // sitting by the hole, clear of the hands at the bottom of the view
+    // The porch (under its roof, 3.6 m) and the house behind it, square to the front door.
+    rainShelters: [
+      { center: [-0.43, 1.48, -8.02], size: [8.6, 3.95, 2.6], yaw: -0.432 },
+      { center: [2.05, 3.25, -13.38], size: [8.6, 7.5, 9.2], yaw: -0.432 },
+    ],
     doors: [
       {
         id: 'front-door',
@@ -92,6 +114,7 @@ export const PLACEMENTS: Record<string, Placements> = {
   },
   'cabin-single/2026-10-04T02-04-41_standard_dd8ca1b4': {
     props: [{ kind: 'stick', at: [0.5, 0.5, -1.0] }],
+    fireplace: [0, 0.2, -5.72], // on the grate, inside the stone fireplace straight ahead
     doors: [
       {
         // The same door seen from inside: the doorway is open in the painted world, so the leaf fills it.

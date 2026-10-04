@@ -9,6 +9,7 @@ const OPEN_ANGLE = THREE.MathUtils.degToRad(105);
 const OUTLINE = 0.012;
 const KNOB_INSET = 0.09; // from the free edge of the leaf
 const KNOB_HEIGHT = 0.47; // fraction of the door height
+const KEYHOLE_DROP = 0.075; // the keyhole sits this far below the knob
 const LEAF_OFFSET = 0.03; // how far the leaf sits in front of the threshold line
 
 /**
@@ -23,7 +24,11 @@ export class Doorway {
   readonly normal: THREE.Vector3;
   /** World position of the knob on the closed leaf, for the hand to reach for. */
   readonly knob?: THREE.Vector3;
+  /** World position of the keyhole under the knob. */
+  readonly keyhole?: THREE.Vector3;
   private readonly hinge?: THREE.Group;
+  private readonly leaf?: THREE.Group;
+  private keyInLock?: THREE.Object3D;
   private readonly openSign: number = 1;
   private swing = 0; // id of the running swing; close() bumps it so a stale swing can't reopen the door
 
@@ -43,15 +48,37 @@ export class Doorway {
       this.hinge = new THREE.Group();
       this.hinge.position.set((-side * width) / 2, 0, LEAF_OFFSET);
       this.hinge.scale.x = side;
-      this.hinge.add(buildLeaf(width, height));
+      this.leaf = buildLeaf(width, height);
+      this.hinge.add(this.leaf);
       this.object.add(this.hinge);
       if (door.painted) this.object.add(replacePaintedDoor(width, height));
 
       this.object.updateMatrixWorld(true);
-      this.knob = new THREE.Vector3(side * (width / 2 - KNOB_INSET), height * KNOB_HEIGHT, LEAF_OFFSET + 0.06).applyMatrix4(
-        this.object.matrixWorld,
-      );
+      const atKnob = (drop: number, out: number) =>
+        new THREE.Vector3(side * (width / 2 - KNOB_INSET), height * KNOB_HEIGHT - drop, LEAF_OFFSET + out).applyMatrix4(this.object.matrixWorld);
+      this.knob = atKnob(0, 0.06);
+      this.keyhole = atKnob(KEYHOLE_DROP, 0.03);
     }
+  }
+
+  /** Leaves `key` (a prop model, long axis along X) in the lock, turned: it swings open with the door. */
+  insertKey(key: THREE.Object3D) {
+    if (!this.leaf) return;
+    this.removeKey();
+    const { width, height } = this.placement;
+    key.position.set(width - KNOB_INSET, height * KNOB_HEIGHT - KEYHOLE_DROP, 0.05);
+    // Blade into the door, bow towards the player, turned a quarter.
+    key.quaternion
+      .setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2)
+      .multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2));
+    this.leaf.add(key);
+    this.keyInLock = key;
+  }
+
+  /** Takes the key back out (the quest restarting). */
+  removeKey() {
+    this.keyInLock?.removeFromParent();
+    this.keyInLock = undefined;
   }
 
   /** A thin box over the closed leaf, so the player can't walk through a shut door. */
@@ -118,6 +145,16 @@ function buildLeaf(width: number, height: number) {
   const knob = inked(new THREE.SphereGeometry(0.035, 16, 12), brass, OUTLINE * 0.6);
   knob.position.set(width - KNOB_INSET, height * KNOB_HEIGHT, 0.06);
   leaf.add(knob);
+
+  // A brass plate with the keyhole, under the knob.
+  const plate = inked(new RoundedBoxGeometry(0.045, 0.07, 0.008, 2, 0.003), brass, OUTLINE * 0.4);
+  plate.position.set(width - KNOB_INSET, height * KNOB_HEIGHT - KEYHOLE_DROP, 0.029);
+  const hole = new THREE.Mesh(new THREE.CylinderGeometry(0.007, 0.007, 0.004, 10), new THREE.MeshBasicMaterial({ color: 0x120c10 }));
+  hole.rotation.x = Math.PI / 2;
+  hole.position.set(width - KNOB_INSET, height * KNOB_HEIGHT - KEYHOLE_DROP + 0.008, 0.034);
+  const slot = new THREE.Mesh(new THREE.BoxGeometry(0.005, 0.018, 0.004), hole.material);
+  slot.position.set(width - KNOB_INSET, height * KNOB_HEIGHT - KEYHOLE_DROP - 0.004, 0.034);
+  leaf.add(plate, hole, slot);
   return leaf;
 }
 

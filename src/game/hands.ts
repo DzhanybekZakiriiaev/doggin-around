@@ -4,6 +4,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { type Mood, MoodLights } from './lighting';
 import { WALK_SPEED } from './player';
+import type { Grip } from './props';
 import { Matcap, rigidSplats, SkinnedSplats } from './splat-hands';
 import { outlineMaterial } from './toon';
 
@@ -36,6 +37,8 @@ interface Pose {
 const REST: Pose = { x: 0.15, y: -0.15, z: -0.36, rx: 0.32, ry: 0.3, rz: -0.3, curl: 0.3, thumb: 0.3, wrist: 0, point: 0 };
 /** The right hand while carrying something: a loose fist, thumb up, a little higher. */
 const HOLD: Pose = { x: 0.17, y: -0.16, z: -0.38, rx: 0.25, ry: 0.35, rz: -1.1, curl: 0.85, thumb: 0.75, wrist: 0, point: 0 };
+/** Carrying something small (the key) between finger and thumb, held up a little where it can be seen. */
+const PINCH: Pose = { x: 0.15, y: -0.12, z: -0.4, rx: 0.45, ry: 0.3, rz: -1.1, curl: 0.8, thumb: 0.72, wrist: 0, point: 0 };
 /** The left hand lowered out of view (it is mirrored, so +x moves it outwards). */
 const LEFT_LOWERED: Pose = { ...REST, x: 0.2, y: -0.26, z: -0.32, rx: 0.1 };
 /** Palm flat and down, over something at arm's length (a dog's back, later). */
@@ -189,6 +192,24 @@ const ACTIONS = {
       { t: 0.9, pose: {} },
     ],
     events: { pat: 0.35, pat2: 0.55 },
+  },
+  /**
+   * Key in the lock: reach it to the keyhole, push it in, turn it, let go (it stays in the lock). Hook
+   * `turned` to leave the key in the door.
+   */
+  unlock: {
+    label: 'Unlock with the key',
+    duration: 1.55,
+    right: [
+      { t: 0, pose: {} },
+      { t: 0.38, reach: [0, 0, 0.07], pose: { x: 0.08, y: -0.09, z: -0.44, rx: 0.05, ry: 0.1, rz: -0.9, curl: 0.62, thumb: 0.6 } },
+      { t: 0.58, reach: [0, 0, 0.015], pose: { x: 0.08, y: -0.09, z: -0.47, rx: 0.05, ry: 0.1, rz: -0.9, curl: 0.62, thumb: 0.6 } },
+      { t: 0.92, reach: [0, 0, 0.015], pose: { x: 0.08, y: -0.09, z: -0.47, rx: 0.05, ry: 0.1, rz: 0.45, curl: 0.62, thumb: 0.6 } },
+      { t: 1.08, reach: [0, 0, 0.015], pose: { x: 0.08, y: -0.09, z: -0.47, rx: 0.05, ry: 0.1, rz: 0.45, curl: 0.62, thumb: 0.6 } },
+      { t: 1.2, reach: [0.01, -0.01, 0.06], pose: { x: 0.09, y: -0.1, z: -0.43, rx: 0.1, ry: 0.15, rz: 0.2, curl: 0.15, thumb: 0.15 } },
+      { t: 1.55, pose: {} },
+    ],
+    events: { inserted: 0.58, turned: 0.95 },
   },
   /** Grip the door bolt and slide it home. */
   slideBolt: {
@@ -387,6 +408,7 @@ export class FirstPersonHands {
   private airborne = 0;
   private action?: { spec: Action; time: number; fired: Set<string>; listeners: Map<string, () => void>; done: () => void };
   private held?: THREE.Object3D;
+  private holdPose = HOLD;
   private readonly petting = { active: false, weight: 0, phase: 0, speed: 0.8, target: undefined as THREE.Vector3 | undefined };
 
   /** With `renderer`, the hands can be drawn as Gaussian splats (they need their own SparkRenderer in this scene). */
@@ -515,10 +537,11 @@ export class FirstPersonHands {
     return this.held;
   }
 
-  /** Puts an item (built in hand space, long axis along X) in the right palm. */
-  hold(item: THREE.Object3D) {
+  /** Puts an item (built in hand space, long axis along X) in the right palm, in a fist or between finger and thumb. */
+  hold(item: THREE.Object3D, grip: Grip = 'fist') {
     this.release();
     this.held = item;
+    this.holdPose = grip === 'pinch' ? PINCH : HOLD;
     this.right?.socket.add(item);
   }
 
@@ -579,7 +602,7 @@ export class FirstPersonHands {
     this.airborne = THREE.MathUtils.lerp(this.airborne, motion.grounded ? 0 : 1, 1 - Math.exp(-dt * 8));
 
     // Base poses: what each hand returns to between actions.
-    const rightBase = this.held ? HOLD : this.pettingPose(dt);
+    const rightBase = this.held ? this.holdPose : this.pettingPose(dt);
     // While petting, the free left hand drops out of the way.
     const leftBase = blend(REST, LEFT_LOWERED, this.petting.weight);
 
@@ -596,7 +619,7 @@ export class FirstPersonHands {
         }
       }
       // Re-read the base after events: a `grab` or `release` changes what the hand returns to.
-      const base = this.held ? HOLD : rightBase;
+      const base = this.held ? this.holdPose : rightBase;
       if (action.spec.right) rightPose = sample(action.spec.right, action.time, base);
       if (action.spec.left) leftPose = sample(action.spec.left, action.time, leftBase);
       actionWeight = 1;

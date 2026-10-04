@@ -68,9 +68,9 @@ export function outlineMaterial(width: number, color: THREE.ColorRepresentation 
   return material;
 }
 
-/** A toon-shaded mesh with its ink outline, as one group. */
-export function inked(geometry: THREE.BufferGeometry, material: THREE.Material, outlineWidth: number) {
+/** A toon-shaded mesh with its ink outline (or one in `outlineColor`, to make it stand out), as one group. */
+export function inked(geometry: THREE.BufferGeometry, material: THREE.Material, outlineWidth: number, outlineColor?: THREE.ColorRepresentation) {
   const group = new THREE.Group();
-  group.add(new THREE.Mesh(geometry, material), new THREE.Mesh(geometry, outlineMaterial(outlineWidth)));
+  group.add(new THREE.Mesh(geometry, material), new THREE.Mesh(geometry, outlineMaterial(outlineWidth, outlineColor)));
   return group;
 }

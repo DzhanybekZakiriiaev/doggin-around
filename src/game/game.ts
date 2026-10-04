@@ -3,13 +3,15 @@ import { SparkRenderer } from '@sparkjsdev/spark';
 import * as THREE from 'three';
 import { Biscuit } from './biscuit';
 import { Doorway } from './door';
+import { Fire } from './fire';
 import { FirstPersonHands } from './hands';
 import { Interactions } from './interaction';
 import { MoodLights } from './lighting';
 import { LEVEL_RUNS, PLACEMENTS } from './levels';
 import { FirstPersonPlayer } from './player';
-import { Prop, type PropKind } from './props';
-import { AdaptiveQuality } from './quality';
+import { gripFor, Prop, type PropKind, propModel } from './props';
+import { AdaptiveQuality, splatRadiusCap } from './quality';
+import { Rain } from './rain';
 import { ComicTransition } from './transition';
 import { MarbleWorld } from './world';
 import { worldRuns } from './worlds-index';
@@ -19,7 +21,8 @@ import './game.css';
 // - "showcase": Biscuit alone on a transparent background, drawn over a page element (the menu's
 //   companion box). Meanwhile the worlds load and are warmed up off screen, so entering is instant.
 // - "play": first person in the Marble worlds, with the Storm Night quest (when on): the cabin door is
-//   locked, Biscuit digs up the spare key, the key opens the door, and walking into the cabin completes it.
+//   locked, Biscuit digs up the spare key, the key opens the door; the cabin is freezing, so three
+//   branches from the yard go on the cold grate, and lighting the fire completes it.
 // The dev viewer (viewer.html) drives the same Game with its HUD and the quest off.
 
 export interface GameUi {
@@ -40,26 +43,39 @@ export interface GameOptions {
   quest?: boolean;
   /** Start invisible (loading and warming up behind a menu) until `showcase` or `play`. */
   hidden?: boolean;
+  /** Splat resolution of the worlds ("500k", "100k", "full_res"); full_res by default. */
   resolution?: string;
   onStatus?: (message: string) => void;
 }
 
-export type QuestStage = 'arrive' | 'locked' | 'digging' | 'key' | 'unlocked' | 'complete';
+export type QuestStage = 'arrive' | 'locked' | 'digging' | 'key' | 'unlocked' | 'cold' | 'fire' | 'complete';
 
-const OBJECTIVES: Record<QuestStage, string> = {
-  arrive: 'Get inside before the storm hits',
-  locked: 'Locked out. Biscuit was digging by the porch earlier…',
-  digging: 'Biscuit is digging…',
-  key: 'The spare key! Take it to the door',
-  unlocked: 'Get inside',
-  complete: 'Home, dry and warm',
+const FIREWOOD = 2;
+const QUICK_RESOLUTION = '500k';
+
+const OBJECTIVES: Record<QuestStage, (gathered: number) => string> = {
+  arrive: () => 'Get inside before the storm hits',
+  locked: () => 'Locked out. Biscuit was digging by the porch earlier…',
+  digging: () => 'Biscuit is digging…',
+  key: () => 'The spare key! Take it to the door',
+  unlocked: () => 'Get inside',
+  cold: (gathered) =>
+    gathered >= FIREWOOD ? 'Put the branches in the fireplace' : `Freezing in here. Fetch branches from the yard for the fire (${gathered}/${FIREWOOD})`,
+  fire: () => 'The fire’s catching…',
+  complete: () => 'Home, dry and warm',
 };
+/** Until the key turns, the front door is locked. */
+const LOCKED_STAGES: QuestStage[] = ['arrive', 'locked', 'digging', 'key'];
+/** The cabin before the fire (cold and blue) and with it roaring (warm). */
+const COLD_TINT = new THREE.Color(0.78, 0.84, 0.98);
+const WARM_TINT = new THREE.Color(1.1, 1.0, 0.88);
 
 interface Settings {
   lookSpeed: number;
   dragLook: boolean;
   hands: boolean;
   splatHands: boolean;
+  rain: boolean;
 }
 
 const wait = (seconds: number) => new Promise((resolve) => setTimeout(resolve, seconds * 1000));
@@ -78,6 +94,7 @@ export class Game {
   readonly scene = new THREE.Scene();
   readonly spark: SparkRenderer;
   readonly quality: AdaptiveQuality;
+  readonly rain: Rain;
   readonly camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.05, 1000);
   readonly physics: RAPIER.World;
   readonly player: FirstPersonPlayer;
@@ -108,7 +125,12 @@ export class Game {
   private readonly runOf = new WeakMap<MarbleWorld, string>();
   /** Which world each prop is in; carrying one through a door and dropping it moves it. */
   private readonly propHome = new Map<Prop, MarbleWorld>();
-  private carried?: Prop;
+  /** What the right hand holds: one prop, or an armful of branches (the last one picked up on top). */
+  private carried: Prop[] = [];
+  private readonly inHand = new Map<Prop, THREE.Object3D>();
+  private fire?: Fire;
+  private fireWorld?: MarbleWorld;
+  private readonly tint = new THREE.Color();
   private showcaseEl?: HTMLElement;
   private readonly showcaseCamera = new THREE.PerspectiveCamera(28, 1, 0.05, 50);
   private showcaseSize = new THREE.Vector2();
@@ -126,7 +148,7 @@ export class Game {
   private constructor(options: GameOptions) {
     this.questOn = options.quest ?? false;
     this.onStatus = options.onStatus ?? (() => {});
-    this.resolution = options.resolution ?? '500k';
+    this.resolution = options.resolution ?? 'full_res'; // loaded at 500k first, the full splats swapped in later
 
     this.layer = options.host ?? document.body.appendChild(document.createElement('div'));
     this.layer.classList.add('game-layer', 'game-layer--play');
@@ -140,6 +162,7 @@ export class Game {
     this.spark = new SparkRenderer({ renderer: this.renderer, covSplats: true, accumExtSplats: true });
     this.scene.add(this.spark, this.worldLights); // the lights are for the toon meshes; splats ignore them
     this.quality = new AdaptiveQuality(this.renderer, this.spark);
+    this.rain = new Rain(this.renderer, this.quality.softwareRenderer);
 
     this.physics = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
     this.player = new FirstPersonPlayer(this.camera, this.physics, this.canvas);
@@ -155,6 +178,7 @@ export class Game {
     this.player.lookSpeed = this.settings.lookSpeed;
     this.hands.visible = this.settings.hands;
     this.hands.splats = this.settings.splatHands;
+    this.rain.enabled = this.settings.rain;
 
     if (options.hidden) this.hide();
     this.listen();
@@ -165,7 +189,7 @@ export class Game {
   // ---------- Settings ----------
 
   private loadSettings(): Settings {
-    const defaults: Settings = { lookSpeed: 1, dragLook: this.quality.softwareRenderer, hands: true, splatHands: true };
+    const defaults: Settings = { lookSpeed: 1, dragLook: this.quality.softwareRenderer, hands: true, splatHands: true, rain: true };
     try {
       return { ...defaults, ...JSON.parse(localStorage.getItem('panel-walk:settings') ?? '{}') };
     } catch {
@@ -177,6 +201,7 @@ export class Game {
     this.player.lookSpeed = this.settings.lookSpeed;
     this.hands.visible = this.settings.hands;
     this.hands.splats = this.settings.splatHands;
+    this.rain.enabled = this.settings.rain;
     if (this.settings.dragLook) document.exitPointerLock();
     try {
       localStorage.setItem('panel-walk:settings', JSON.stringify(this.settings));
@@ -205,7 +230,16 @@ export class Game {
   }
 
   private showHint(text?: string) {
-    this.ui.hint.textContent = text ?? (this.carried ? `Carrying the ${this.carried.label} · T throw · G put down` : '');
+    this.ui.hint.textContent = text ?? this.carryingHint();
+  }
+
+  private carryingHint() {
+    const top = this.carried.at(-1);
+    if (!top) return '';
+    const branches = this.branchesHeld;
+    if (top.kind === 'key') return `Carrying the key${branches ? ` and ${branches > 1 ? `${branches} branches` : 'a branch'}` : ''} · G put down`;
+    const what = branches > 1 ? `${branches} branches` : `the ${top.label}`; // only branches stack
+    return `Carrying ${what} · T throw · G put down`;
   }
 
   // ---------- Worlds ----------
@@ -217,7 +251,9 @@ export class Game {
       const run = worldRuns.find((candidate) => candidate.id === runId);
       if (!run) return Promise.reject(new Error(`World ${runId} is not downloaded`));
       const resolution = run.resolutions.includes(this.resolution) ? this.resolution : run.resolutions[0];
-      promise = MarbleWorld.load(run, resolution, this.physics, this.onStatus).then((created) => {
+      // Full resolution takes a while to load: start with the 500k splats, swap the sharp ones in later.
+      const quick = resolution === 'full_res' && run.resolutions.includes(QUICK_RESOLUTION) ? QUICK_RESOLUTION : resolution;
+      promise = MarbleWorld.load(run, quick, this.physics, this.onStatus).then((created) => {
         created.deactivate();
         this.runOf.set(created, runId);
         const doors = (PLACEMENTS[runId]?.doors ?? []).map((placement) => new Doorway(placement));
@@ -228,7 +264,18 @@ export class Game {
         }
         this.doorways.set(created, doors);
         for (const placement of PLACEMENTS[runId]?.props ?? []) this.addProp(placement.kind, created, new THREE.Vector3(...placement.at));
+        const fireplace = PLACEMENTS[runId]?.fireplace;
+        if (fireplace) {
+          this.fire = new Fire(new THREE.Vector3(...fireplace), FIREWOOD);
+          this.fireWorld = created;
+          created.root.add(this.fire.group);
+        }
         this.warmups.push(created);
+        if (quick !== resolution) {
+          created
+            .upgrade(run, resolution, () => this.warmups.push(created))
+            .catch((error) => console.warn(`[world] ${runId} stays at ${quick}: ${(error as Error).message}`));
+        }
         return created;
       });
       promise.catch(() => this.loaded.delete(key));
@@ -247,10 +294,20 @@ export class Game {
     const previous = [...this.loaded.values()];
     this.loaded.clear();
     this.world = undefined;
-    for (const pending of previous) pending.then((old) => old.dispose(this.physics)).catch(() => {});
+    for (const pending of previous) {
+      pending
+        .then((old) => {
+          this.rain.forget(old.colliderView);
+          old.dispose(this.physics);
+        })
+        .catch(() => {});
+    }
     for (const prop of this.propHome.keys()) prop.dispose(this.physics);
     this.propHome.clear();
-    this.carried = undefined;
+    this.carried = [];
+    this.inHand.clear();
+    this.fire?.setAudible(false);
+    this.fire = this.fireWorld = undefined;
     this.biscuit.letGo();
     this.hands.release();
     this.showHint();
@@ -275,13 +332,15 @@ export class Game {
     this.hands.setMood(mood);
     this.worldLights.setMood(mood);
     this.biscuit.setMood(mood);
+    this.rain.setPlace(mood === 'dusk' ? 'outside' : 'inside', next.colliderView, PLACEMENTS[runId]?.rainShelters);
+    this.fire?.setAudible(next === this.fireWorld);
     this.refreshInteractions();
     this.quality.reset();
     this.onStatus(worldRuns.find((run) => run.id === runId)?.label ?? runId);
 
     // Warm up the worlds this one's doors lead to.
     for (const door of doors) void this.loadWorld(LEVEL_RUNS[door.placement.to]).catch(() => {});
-    if (this.questOn && runId === LEVEL_RUNS.cabin && this.questStage === 'unlocked') void this.completeQuest();
+    if (this.questOn && runId === LEVEL_RUNS.cabin && this.questStage === 'unlocked') void this.inFromTheStorm();
   }
 
   // ---------- Modes ----------
@@ -296,6 +355,8 @@ export class Game {
     this.player.inputEnabled = false;
     this.world?.deactivate();
     this.world = undefined;
+    this.rain.setPlace('none');
+    this.fire?.setAudible(false);
   }
 
   /** Menu mode: Biscuit alone, drawn over `element` (the page shows through around him). */
@@ -310,6 +371,8 @@ export class Game {
     this.player.inputEnabled = false;
     this.world?.deactivate();
     this.world = undefined;
+    this.rain.setPlace('none');
+    this.fire?.setAudible(false);
     this.scene.background = null;
     this.hands.stopPetting();
     this.biscuit.setMood('studio');
@@ -355,8 +418,8 @@ export class Game {
 
   /**
    * The opening view as a JPEG data URL, at full quality: the last frame of the comic-to-game transition
-   * (public/comic/transition/game-start.jpg, see scripts/comic-transition.mjs). Call after `play()`; in the
-   * dev console: `copy(await game.captureFrame())`.
+   * (public/comic/transition/game-start.jpg, see scripts/comic-transition.mjs). Without the rain: it fades in
+   * over the live picture. Call after `play()`; in the dev console: `copy(await game.captureFrame())`.
    */
   async captureFrame(width = 1920, height = 1080): Promise<string> {
     const ratio = this.renderer.getPixelRatio();
@@ -367,6 +430,7 @@ export class Game {
     this.camera.updateProjectionMatrix();
     this.hands.setAspect(this.camera.aspect);
     this.spark.lodSplatCount = 2_500_000;
+    this.spark.maxPixelRadius = splatRadiusCap(height); // the window's cap is sized for the window
     await this.whenDrawn();
     // Adaptive quality may have resized the canvas to the window meanwhile.
     this.renderer.setPixelRatio(1);
@@ -395,7 +459,7 @@ export class Game {
     this.scene.background = new THREE.Color(0x1b2028);
     this.quality.resize();
     this.onResize();
-    if (this.questOn) this.resetQuest();
+    if (this.questOn) await this.resetQuest();
     await this.enterWorld(runId);
     // Where comic panel 1 draws him: sitting on the path ahead, a little right, looking back at you.
     const posed = PLACEMENTS[runId]?.biscuitStart;
@@ -542,26 +606,38 @@ export class Game {
 
   // ---------- Interactions ----------
 
-  /** What the player can use in the current world: its doors, Biscuit, the props lying in it and the dig spot. */
+  /** What the player can use in the current world: its doors, Biscuit, the props lying in it, the dig spot and the fireplace. */
   refreshInteractions() {
     const here = this.world;
     if (!here) return;
     const runId = this.runOf.get(here);
     const digSpot = runId && PLACEMENTS[runId]?.digSpot;
+    const fire = here === this.fireWorld ? this.fire : undefined;
     this.interactions.set([
       ...(this.doorways.get(here) ?? []).map((door) => ({
         target: door.center,
         range: 2.6,
-        prompt: () => (this.isLocked(door) ? (this.carried?.kind === 'key' ? 'Unlock the door' : 'Try the door') : door.placement.prompt),
+        prompt: () => (this.isLocked(door) ? (this.holding('key') ? 'Unlock the door' : 'Try the door') : door.placement.prompt),
         act: () => this.useDoor(door),
       })),
       {
         target: this.biscuit.back,
         range: 2.6,
         prompt: 'Pet Biscuit',
-        enabled: () => !this.carried && !this.hands.busy && !this.biscuit.busy,
+        enabled: () => !this.carried.length && !this.hands.busy && !this.biscuit.busy,
         act: () => this.pet(),
       },
+      ...(this.questOn && fire
+        ? [
+            {
+              target: fire.group.position,
+              range: 2.8,
+              prompt: () => `Put ${this.carried.length > 1 ? 'the branches' : 'the branch'} in the fireplace`,
+              enabled: () => this.questStage === 'cold' && this.holding('branch') && !this.hands.busy,
+              act: () => this.stokeFire(fire),
+            },
+          ]
+        : []),
       ...(this.questOn && digSpot
         ? [
             {
@@ -576,11 +652,65 @@ export class Game {
       ...[...this.propHome].filter(([, home]) => home === here).map(([prop]) => ({
         target: prop.position,
         range: 2.4,
-        prompt: `Pick up the ${prop.label}`,
-        enabled: () => !this.carried && !prop.isCarried,
+        prompt: () => `Pick up the ${prop.label}${this.carried.length ? ' too' : ''}`,
+        enabled: () => this.canPickUp(prop),
         act: () => this.pickUp(prop),
       })),
     ]);
+  }
+
+  /** Whether the top of what's carried is a `kind`. */
+  private holding(kind: PropKind) {
+    return this.carried.at(-1)?.kind === kind;
+  }
+
+  /**
+   * An empty hand takes anything. Firewood and the key go together (so the demo never stalls on full hands):
+   * branches gather under your arm, up to what the fire needs, and the key rides on top in your fingers.
+   */
+  private canPickUp(prop: Prop) {
+    if (prop.isCarried) return false;
+    if (!this.carried.length) return true;
+    const questItems = this.carried.every((held) => held.kind === 'branch' || held.kind === 'key');
+    if (prop.kind === 'branch') return questItems && this.branchesHeld < FIREWOOD;
+    if (prop.kind === 'key') return questItems && !this.holding('key');
+    return false;
+  }
+
+  private get branchesHeld() {
+    return this.carried.filter((prop) => prop.kind === 'branch').length;
+  }
+
+  /** Branches gathered for the fire so far: on the grate and in hand. */
+  private get gathered() {
+    return (this.fire?.logCount ?? 0) + this.branchesHeld;
+  }
+
+  /** Puts what's carried in the right hand: the key in the fingers, or the branches fanned out as an armful. */
+  private updateHeld() {
+    const top = this.carried.at(-1);
+    if (!top) {
+      this.hands.release();
+      return;
+    }
+    // Under the key, any branches are tucked under the arm: carried, not drawn.
+    const shown = top.kind === 'branch' ? this.carried.filter((prop) => prop.kind === 'branch') : [top];
+    const armful = new THREE.Group();
+    const spread = (shown.length - 1) / 2;
+    shown.forEach((prop, i) => {
+      const model = this.inHand.get(prop)!;
+      model.rotation.z = (i - spread) * 0.22; // fanned a little, like a bundle
+      model.position.y = (i - spread) * -0.012;
+      armful.add(model);
+    });
+    this.hands.hold(armful, gripFor(top.kind));
+  }
+
+  /** Takes `prop` out of the hand (whatever else is carried stays). */
+  private letGoOf(prop: Prop) {
+    this.carried = this.carried.filter((held) => held !== prop);
+    this.inHand.delete(prop);
+    this.updateHeld();
   }
 
   private addProp(kind: PropKind, world: MarbleWorld, at: THREE.Vector3) {
@@ -592,15 +722,21 @@ export class Game {
   }
 
   private async pickUp(prop: Prop) {
-    if (this.carried || this.hands.busy) return;
+    if (!this.canPickUp(prop) || this.hands.busy) return;
     const reach = this.hands.aimAt(prop.position, this.camera);
     await this.hands.play(
       'pickUp',
       {
         grab: () => {
-          this.carried = prop;
-          this.hands.hold(prop.pickUp());
+          if (!this.canPickUp(prop)) return; // Biscuit got there first
+          this.inHand.set(prop, prop.pickUp());
+          // The key stays on top, in the fingers; a branch picked up meanwhile goes under the arm.
+          const keyAt = this.carried.findIndex((held) => held.kind === 'key');
+          if (prop.kind === 'branch' && keyAt >= 0) this.carried.splice(keyAt, 0, prop);
+          else this.carried.push(prop);
+          this.updateHeld();
           this.showHint();
+          if (this.questStage === 'cold') this.setStage('cold'); // the count
         },
       },
       reach,
@@ -608,12 +744,13 @@ export class Game {
   }
 
   async throwCarried() {
-    const prop = this.carried;
+    const prop = this.carried.at(-1);
     if (!prop || this.hands.busy || !this.player.inputEnabled) return;
+    if (prop.kind === 'key') return this.showHint('Better hang on to the key');
     await this.hands.play('throw', {
       release: () => {
         const from = this.hands.palmInWorld(this.camera);
-        this.hands.release();
+        this.letGoOf(prop);
         const velocity = this.camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(8).add(new THREE.Vector3(0, 2.5, 0));
         const spin = new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(14);
         this.putInWorld(prop, from, velocity, spin);
@@ -623,11 +760,11 @@ export class Game {
   }
 
   async putDownCarried() {
-    const prop = this.carried;
+    const prop = this.carried.at(-1);
     if (!prop || this.hands.busy || !this.player.inputEnabled) return;
     await this.hands.play('drop', {
       release: () => {
-        this.hands.release();
+        this.letGoOf(prop);
         // Just in front of the feet; it drops the last bit and settles.
         const ahead = this.camera.getWorldDirection(new THREE.Vector3()).setY(0).normalize();
         this.putInWorld(prop, this.player.feet.addScaledVector(ahead, 0.6).setY(this.player.feet.y + 0.3));
@@ -636,7 +773,6 @@ export class Game {
   }
 
   private putInWorld(prop: Prop, at: THREE.Vector3, velocity?: THREE.Vector3, spin?: THREE.Vector3) {
-    this.carried = undefined;
     if (this.world) {
       this.propHome.set(prop, this.world); // carried through a door? It lives here now
       this.world.root.add(prop.object);
@@ -644,11 +780,12 @@ export class Game {
     prop.putDown(at, velocity, spin);
     this.refreshInteractions();
     this.showHint();
+    if (this.questStage === 'cold') this.setStage('cold'); // the count
   }
 
   /** He trots up and stands side-on in front of you (head to your left), you crouch, and the hand strokes his neck. */
   private async pet() {
-    if (this.carried || this.hands.busy || !this.player.inputEnabled) return;
+    if (this.carried.length || this.hands.busy || !this.player.inputEnabled) return;
     const { player, biscuit, hands } = this;
     player.inputEnabled = false;
     try {
@@ -684,21 +821,41 @@ export class Game {
   // ---------- Doors and the quest ----------
 
   private isLocked(door: Doorway) {
-    return this.questOn && !!door.placement.locked && this.questStage !== 'unlocked' && this.questStage !== 'complete';
+    return this.questOn && !!door.placement.locked && LOCKED_STAGES.includes(this.questStage);
   }
 
   private async useDoor(door: Doorway) {
     if (!this.isLocked(door)) return this.goThrough(door);
-    if (this.carried?.kind === 'key') {
-      // Turn the key: it's used up, the door's open from now on.
-      const key = this.carried;
-      await this.hands.play('slideBolt', { slid: () => this.hands.release() }, door.knob && this.hands.aimAt(door.knob, this.camera));
-      this.carried = undefined;
-      this.propHome.delete(key);
-      key.dispose(this.physics);
-      this.setStage('unlocked');
-      this.showHint();
-      return this.goThrough(door);
+    const key = this.carried.at(-1);
+    if (key?.kind === 'key' && door.keyhole) {
+      // Look down at the lock, push the key in and turn it; it stays in the lock and the door's open for good.
+      const { player } = this;
+      player.inputEnabled = false;
+      player.focus = door.keyhole;
+      player.focusTilt = 0.12; // the lock a little below the middle of the view, where the hand reaches
+      try {
+        await wait(0.45);
+        await this.hands.play(
+          'unlock',
+          {
+            turned: () => {
+              this.letGoOf(key);
+              this.propHome.delete(key);
+              key.dispose(this.physics);
+              door.insertKey(propModel('key'));
+              this.setStage('unlocked');
+              this.showHint('Click!');
+            },
+          },
+          this.hands.aimAt(door.keyhole, this.camera),
+        );
+      } finally {
+        player.focus = undefined;
+        player.focusTilt = 0;
+        player.inputEnabled = true;
+      }
+      if (this.questStage === 'unlocked') return this.goThrough(door);
+      return;
     }
     await this.hands.play('knock', {}, door.knob && this.hands.aimAt(door.knob, this.camera));
     this.showHint('Locked. Mika’s keys are gone…');
@@ -726,21 +883,79 @@ export class Game {
 
   private setStage(stage: QuestStage) {
     this.questStage = stage;
-    const text = this.questOn ? OBJECTIVES[stage] : '';
+    const text = this.questOn ? OBJECTIVES[stage](this.gathered) : '';
     if (this.ui.objective) this.ui.objective.textContent = text;
     this.onObjective?.(text);
   }
 
-  /** Back to the start of the story: the door locked and the key still buried. */
-  resetQuest() {
-    for (const [prop] of this.propHome) {
-      if (prop.kind !== 'key') continue;
-      if (prop === this.carried) {
-        this.hands.release();
-        this.carried = undefined;
-      }
+  /** Inside at last, but the cabin is freezing and the grate is cold: off to find firewood. */
+  private async inFromTheStorm() {
+    this.setStage('cold');
+    this.showHint(this.gathered >= FIREWOOD ? 'Brr… good thing you brought firewood' : 'Brr… the fire’s out and there’s no firewood in');
+    await wait(0.6);
+    if (this.mode === 'play' && !this.hands.busy && !this.carried.length) await this.hands.play('rubHands');
+  }
+
+  /** Lays the branches in hand on the grate; once there are enough, the fire lights. */
+  private async stokeFire(fire: Fire) {
+    if (!this.holding('branch') || this.hands.busy) return;
+    const logs = this.carried.filter((prop) => prop.kind === 'branch');
+    await this.hands.play(
+      'drop',
+      {
+        release: () => {
+          for (const log of logs) {
+            this.letGoOf(log);
+            this.propHome.delete(log);
+            log.dispose(this.physics);
+            fire.addLog();
+          }
+          this.refreshInteractions();
+          const missing = FIREWOOD - fire.logCount;
+          this.showHint(missing > 0 ? `${missing} more for a proper fire` : '');
+          this.setStage('cold');
+        },
+      },
+      this.hands.aimAt(fire.group.position, this.camera),
+    );
+    if (fire.ready && this.mode === 'play') await this.lightFire(fire);
+  }
+
+  /** It catches: Biscuit settles by the hearth, warm hands, and the story ends well. */
+  private async lightFire(fire: Fire) {
+    const { player } = this;
+    player.inputEnabled = false;
+    player.focus = fire.group.position.clone().setY(fire.group.position.y + 0.35);
+    this.setStage('fire');
+    fire.light();
+    // On the rug, by the hearth, looking at you.
+    this.biscuit.sitAt(fire.group.position.clone().add(new THREE.Vector3(-0.75, -fire.group.position.y, 1.15)), player.feet);
+    await wait(1.8);
+    if (this.mode !== 'play') return;
+    await this.hands.play('warmHands');
+    player.focus = undefined;
+    await this.completeQuest();
+  }
+
+  /** Back to the start of the story: the door locked, the key still buried, the branches round the yard, the grate cold. */
+  async resetQuest() {
+    for (const prop of [...this.propHome.keys()]) {
+      if (prop.kind !== 'key' && prop.kind !== 'branch') continue;
       this.propHome.delete(prop);
       prop.dispose(this.physics);
+    }
+    this.carried = [];
+    this.inHand.clear();
+    this.hands.release();
+    this.fire?.reset();
+    for (const pending of this.loaded.values()) {
+      const world = await pending.catch(() => undefined);
+      const runId = world && this.runOf.get(world);
+      if (!world || !runId) continue;
+      for (const door of this.doorways.get(world) ?? []) door.removeKey();
+      for (const placement of PLACEMENTS[runId]?.props ?? []) {
+        if (placement.kind === 'branch') this.addProp('branch', world, new THREE.Vector3(...placement.at));
+      }
     }
     this.showHint();
     this.setStage('arrive');
@@ -807,6 +1022,7 @@ export class Game {
     this.canvas.addEventListener('click', this.lockPointer);
     this.canvas.addEventListener('pointerdown', () => {
       if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      this.rain.wake();
     });
     document.addEventListener('pointerlockchange', () => {
       const lost = document.pointerLockElement !== this.canvas;
@@ -815,6 +1031,7 @@ export class Game {
     window.addEventListener('keydown', (event) => {
       if (event.repeat || event.target instanceof HTMLSelectElement || event.target instanceof HTMLInputElement) return;
       if (this.mode !== 'play') return;
+      this.rain.wake();
       this.onKey?.(event);
       if (event.code === 'KeyR' && this.player.inputEnabled) this.player.respawn();
       else if (event.code === 'KeyT') void this.throwCarried();
@@ -833,7 +1050,7 @@ export class Game {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
     this.hands.setAspect(this.camera.aspect);
-    this.renderer.setSize(window.innerWidth, window.innerHeight, false);
+    this.quality.resize(); // the render size, and the splat size cap that goes with it
   }
 
   // ---------- Loop ----------
@@ -883,10 +1100,17 @@ export class Game {
     }
     this.hands.visible = this.settings.hands && !this.player.fly;
     this.hands.update(dt, this.player.motion);
+    this.rain.update(dt, this.camera);
+    if (world && world === this.fireWorld && this.fire) {
+      this.fire.update(dt, this.camera);
+      // Storm Night's cabin is cold and blue until the fire's lit, then warms with it.
+      if (this.questOn) world.setTint(this.tint.lerpColors(COLD_TINT, WARM_TINT, this.fire.intensity));
+    }
 
     this.renderer.render(this.scene, this.camera);
-    // Hands go on top: clear depth so they never sink into walls.
     this.renderer.autoClear = false;
+    // Rain over the world, tested against its depth; then the hands on top: clear depth so they never sink into walls.
+    if (this.rain.showing) this.renderer.render(this.rain.scene, this.camera);
     this.renderer.clearDepth();
     this.renderer.render(this.hands.scene, this.hands.camera);
     this.renderer.autoClear = true;

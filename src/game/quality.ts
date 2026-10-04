@@ -22,6 +22,13 @@ const TIERS: Tier[] = [
   { pixelRatio: 0.5, splats: 100_000, maxStdDev: Math.sqrt(5) },
 ];
 
+// A few of Marble's splats are needles that project across the whole view and draw as long streaks over
+// everything (seen on a GPU; Spark lets a splat cover up to 512 px). Capping a splat's on-screen radius at a
+// share of the frame's height removes them without softening walls up close (checked at the yard's front door).
+const MAX_SPLAT_RADIUS = 0.12;
+/** The largest on-screen splat radius (pixels) for a frame `height` pixels tall. */
+export const splatRadiusCap = (height: number) => Math.round(MAX_SPLAT_RADIUS * height);
+
 const TOO_SLOW_FPS = 45;
 const FAST_ENOUGH_FPS = 57;
 const SETTLE_SECONDS = 1.5; // ignore frames right after a change while LoD and sorting catch up
@@ -100,6 +107,7 @@ export class AdaptiveQuality {
     this.renderer.setSize(window.innerWidth, window.innerHeight, false);
     this.spark.lodSplatCount = splats;
     this.spark.maxStdDev = maxStdDev;
+    this.spark.maxPixelRadius = splatRadiusCap(window.innerHeight * this.renderer.getPixelRatio());
   }
 }
 

@@ -14,6 +14,7 @@ const colliderToggle = $<HTMLInputElement>('#collider-toggle');
 const flyToggle = $<HTMLInputElement>('#fly-toggle');
 const handsToggle = $<HTMLInputElement>('#hands-toggle');
 const splatHandsToggle = $<HTMLInputElement>('#splat-hands-toggle');
+const rainToggle = $<HTMLInputElement>('#rain-toggle');
 const dragToggle = $<HTMLInputElement>('#drag-toggle');
 const lookSpeedInput = $<HTMLInputElement>('#look-speed');
 const handActionSelect = $<HTMLSelectElement>('#hand-action');
@@ -33,6 +34,7 @@ lookSpeedInput.value = String(settings.lookSpeed);
 dragToggle.checked = settings.dragLook;
 handsToggle.checked = settings.hands;
 splatHandsToggle.checked = settings.splatHands;
+rainToggle.checked = settings.rain;
 
 // ---------- Worlds ----------
 
@@ -76,6 +78,10 @@ handsToggle.addEventListener('change', () => {
 });
 splatHandsToggle.addEventListener('change', () => {
   settings.splatHands = splatHandsToggle.checked;
+  game.saveSettings();
+});
+rainToggle.addEventListener('change', () => {
+  settings.rain = rainToggle.checked;
   game.saveSettings();
 });
 dragToggle.addEventListener('change', () => {

@@ -23,12 +23,15 @@ The whole demo loop runs in one page (`npm run dev` → http://localhost:5173):
 - **Dog animation**: procedural IK legs (`src/game/dog-gait.ts`: planted paws per ground point, four-beat walk and trot, heel-off). The GLB's walk and run clips are rebuilt from the same gait (`npm run dog-clips`), keeping Larry's speed contract; everything else in the file is byte-identical.
 - **Quest**: Storm Night (locked door → dig → key → unlock → cabin → complete), objectives on screen.
 - **Menu integration**: the `frontend` branch's React app (copied in, not merged: the merge was blocked as a shared-history change) is the shell; the game is one module (`src/game/game.ts`) with a hidden/showcase/play mode, background preloading and warm-up.
+- **Rain** (`src/game/rain.ts`): streaks falling round the player in the yard, splash rings on the ground, and rain sound made with Web Audio (muffled on the roof in the cabin). The drops move in the vertex shader; a depth map of the collider seen from above keeps them off the porch, out of the house and from falling through the ground. Fewer drops without a GPU; a "Rain" toggle in the viewer.
+- **Deploy**: `npm run build` copies the worlds into `dist/`, so it's a self-contained static site; `Dockerfile` serves it with nginx on `$PORT`.
 - **Comic art** (Gemini, from the scene plates + the official Biscuit reference): `npm run comic` (9 panels: shared panel 1, four bad, four good), `npm run comic-page` (lettered PNG pages for both endings), `npm run comic-transition` (in-between frames for the panel-to-game dissolve).
 
 ## Open / next
 
 - **Check on a GPU machine**: everything above was tested in headless Edge and the in-app browser on a GPU-less VM (software rendering). The transition timings, the "world drawn" wait and the splat budgets should be confirmed on the demo laptop.
-- **Re-capture the opening frame after any world or placement change**: `public/comic/transition/game-start.jpg` must match the game's first view. In the dev console after entering the yard: `copy(await game.captureFrame())`, save it, then `npm run comic-transition`.
+- **Re-capture the opening frame after any world or placement change**: `public/comic/transition/game-start.jpg` must match the game's first view. In the dev console after entering the yard: `copy(await game.captureFrame())`, save it, then `npm run comic-transition`. The capture leaves the rain out: it comes in as the frame fades into the live game.
+- **Rain needs a look in a real browser**: density, streak brightness, splash size and sound level are first guesses, and the shelter map ignores collider geometry above 9 m (treetops, sky) but treats lower canopies as roofs; tune the constants at the top of `src/game/rain.ts`.
 - **No dig clip**: Biscuit "digs" with the paw clip plus dirt clods. A real dig animation from Larry would read better.
 - **Uploaded comic is decorative**: the demo always plays Storm Night, whatever is uploaded.
 - **Voice** ("Biscuit, dig!" spoken; the `speech-integration` branch) is not wired in; E triggers the dig.

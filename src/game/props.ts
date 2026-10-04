@@ -6,18 +6,24 @@ import { inked, toonMaterial } from './toon';
 // copy in the first-person hand while carried. Placeholder art in the toon style; the quest items
 // (fetch sticks, the spare key) will use the final models.
 
-export type PropKind = 'stick' | 'key';
+export type PropKind = 'stick' | 'branch' | 'key';
+
+/** How the hand closes round a held prop: a fist round the middle, or finger and thumb (small things). */
+export type Grip = 'fist' | 'pinch';
 
 interface PropSpec {
   label: string;
-  /** Builds the model with its long axis along X (how it lies across the palm). */
-  build(outline: number): THREE.Object3D;
+  /** Builds the model with its long axis along X (how it lies across the palm), outlined in `ink` if given. */
+  build(outline: number, ink?: number): THREE.Object3D;
+  /** Quest items lying in the world get a thick orange outline, so they're easy to spot. */
+  highlight?: boolean;
   collider(): RAPIER.ColliderDesc;
   /**
    * How it sits in the first-person hand. Held items are drawn a little smaller than life (as first-person
-   * games do) so they don't fill the screen; `lean` turns the far end away from the camera (radians).
+   * games do) so they don't fill the screen; `lean` turns the far end away from the camera (radians) and
+   * `offset` moves it in the hand (metres, hand space: -Z is where the fingers point).
    */
-  held: { scale: number; lean: number };
+  held: { scale: number; lean: number; grip: Grip; offset?: [number, number, number] };
 }
 
 const ACROSS_X = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 2);
@@ -37,7 +43,34 @@ const SPECS: Record<PropKind, PropSpec> = {
       return stick;
     },
     collider: () => RAPIER.ColliderDesc.capsule(0.22, 0.026).setRotation(ACROSS_X).setFriction(0.9).setRestitution(0.2),
-    held: { scale: 0.6, lean: -0.65 },
+    held: { scale: 0.6, lean: -0.65, grip: 'fist' },
+  },
+  branch: {
+    label: 'branch',
+    highlight: true,
+    build: (outline, ink) => {
+      // Firewood: a crooked length of bough with two side shoots and a stub.
+      const branch = new THREE.Group();
+      const bark = toonMaterial(0x5a3a22, { dotSize: 6, shadowLevel: 0.6 });
+      const bough = inked(new THREE.CylinderGeometry(0.026, 0.036, 0.62, 9), bark, outline, ink);
+      bough.rotation.z = Math.PI / 2;
+      const shoots: [number, number, number, number, number][] = [
+        // x, y, length, radius, angle
+        [0.12, 0.05, 0.2, 0.012, -0.7],
+        [-0.1, -0.045, 0.16, 0.01, 2.4],
+        [-0.22, 0.03, 0.07, 0.015, -0.4],
+      ];
+      branch.add(bough);
+      for (const [x, y, length, radius, angle] of shoots) {
+        const shoot = inked(new THREE.CylinderGeometry(radius * 0.6, radius, length, 6), bark, outline * 0.7, ink);
+        shoot.position.set(x, y, 0);
+        shoot.rotation.z = angle;
+        branch.add(shoot);
+      }
+      return branch;
+    },
+    collider: () => RAPIER.ColliderDesc.capsule(0.28, 0.032).setRotation(ACROSS_X).setFriction(0.95).setRestitution(0.15),
+    held: { scale: 0.55, lean: -0.65, grip: 'fist' },
   },
   key: {
     label: 'key',
@@ -54,12 +87,23 @@ const SPECS: Record<PropKind, PropSpec> = {
       return key;
     },
     collider: () => RAPIER.ColliderDesc.cuboid(0.05, 0.012, 0.006).setFriction(0.8).setRestitution(0.1),
-    held: { scale: 1, lean: -0.3 },
+    // Bow between finger and thumb, the blade standing up out of the grip where it can be seen.
+    held: { scale: 1.15, lean: 1.9, grip: 'pinch', offset: [-0.03, 0, -0.03] },
   },
 };
 
+/** A prop's model on its own (logs on the fire, the key left in the lock), long axis along X. */
+export function propModel(kind: PropKind, outline = WORLD_OUTLINE) {
+  return SPECS[kind].build(outline);
+}
+
+export function gripFor(kind: PropKind): Grip {
+  return SPECS[kind].held.grip;
+}
+
 const WORLD_OUTLINE = 0.006;
 const HELD_OUTLINE = 0.0018;
+const HIGHLIGHT = { width: WORLD_OUTLINE * 3.6, color: 0xff7a1a };
 
 export class Prop {
   readonly object: THREE.Object3D;
@@ -76,7 +120,7 @@ export class Prop {
   ) {
     const spec = SPECS[kind];
     this.label = spec.label;
-    this.object = spec.build(WORLD_OUTLINE);
+    this.object = spec.highlight ? spec.build(HIGHLIGHT.width, HIGHLIGHT.color) : spec.build(WORLD_OUTLINE);
     this.body = physics.createRigidBody(
       RAPIER.RigidBodyDesc.dynamic().setTranslation(at.x, at.y, at.z).setCcdEnabled(true).setAngularDamping(0.6),
     );
@@ -108,6 +152,7 @@ export class Prop {
     inHand.scale.setScalar(held.scale);
     // Across the palm the far end would stand straight up in a thumb-up grip; lean it away from the eye.
     inHand.rotation.y = held.lean;
+    if (held.offset) inHand.position.set(...held.offset);
     return inHand;
   }
 
