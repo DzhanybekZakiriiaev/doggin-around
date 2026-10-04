@@ -4,7 +4,6 @@ import {
   DragEvent,
   PointerEvent as ReactPointerEvent,
   ReactNode,
-  useEffect,
   useRef,
   useState,
 } from "react";
@@ -266,7 +265,7 @@ function UploadZone({
   );
 }
 
-function DogNameplate({
+function DogNameEditor({
   name,
   onChange,
 }: {
@@ -274,90 +273,21 @@ function DogNameplate({
   onChange: (name: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
-  return (
-    <div className="nameplate">
-      <span className="nameplate-kicker">YOUR COMPANION</span>
-      {editing ? (
-        <input
-          aria-label="Dog name"
-          autoFocus
-          className="name-input"
-          onBlur={() => setEditing(false)}
-          onChange={(event) => onChange(event.target.value.toUpperCase())}
-          onKeyDown={(event) => event.key === "Enter" && setEditing(false)}
-          value={name}
-        />
-      ) : (
-        <button className="name-button" onClick={() => setEditing(true)} type="button">
-          <span>{name}</span>
-          <Icon name="edit" size={16} />
-        </button>
-      )}
-      <div className="traits">
-        <span>PLAYFUL</span>
-        <span>CURIOUS</span>
-      </div>
-    </div>
-  );
-}
-
-function InteractionPrompt({ children }: { children: ReactNode }) {
-  return <div className="interaction-prompt">{children}</div>;
-}
-
-function Waveform() {
-  return (
-    <div aria-hidden="true" className="waveform">
-      {Array.from({ length: 11 }).map((_, index) => (
-        <i key={index} style={{ animationDelay: `${index * 0.055}s` }} />
-      ))}
-    </div>
-  );
-}
-
-function MicInput({
-  listening,
-  onListening,
-}: {
-  listening: boolean;
-  onListening: (value: boolean) => void;
-}) {
-  return (
-    <button
-      aria-label="Hold to talk"
-      className={`mic-control ${listening ? "mic-control--active" : ""}`}
-      onPointerDown={() => onListening(true)}
-      onPointerLeave={() => onListening(false)}
-      onPointerUp={() => onListening(false)}
-      type="button"
-    >
-      <span className="mic-icon">
-        <Icon name="mic" size={20} />
-      </span>
-      <span className="mic-copy">
-        <small>{listening ? "VOICE LINK ACTIVE" : "SAY “HI MILO”"}</small>
-        <strong>{listening ? "LISTENING…" : "HOLD TO TALK"}</strong>
-      </span>
-      {listening && <Waveform />}
-    </button>
-  );
-}
-
-function TechDebugToggle({
-  active,
-  onToggle,
-}: {
-  active: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <button
-      className={`tech-toggle ${active ? "tech-toggle--active" : ""}`}
-      onClick={onToggle}
-      type="button"
-    >
-      <Icon name="tech" size={15} />
-      TECH VIEW
+  return editing ? (
+    <input
+      aria-label="Dog name"
+      autoFocus
+      className="name-input"
+      maxLength={14}
+      onBlur={() => setEditing(false)}
+      onChange={(event) => onChange(event.target.value.toUpperCase())}
+      onKeyDown={(event) => event.key === "Enter" && setEditing(false)}
+      value={name}
+    />
+  ) : (
+    <button aria-label={`Rename ${name}`} className="name-button" onClick={() => setEditing(true)} type="button">
+      <span>{name || "NAME YOUR DOG"}</span>
+      <Icon name="edit" size={16} />
     </button>
   );
 }
@@ -438,7 +368,7 @@ function TopBar({ screen }: { screen: number }) {
       <div className="progress">
         <span>CHAPTER SELECT</span>
         <strong>0{screen}</strong>
-        <i>/ 04</i>
+        <i>/ 03</i>
       </div>
     </header>
   );
@@ -513,7 +443,7 @@ function UploadScreen({
   );
 }
 
-function MeetScreen({
+function QuestHub({
   dogImage,
   name,
   setName,
@@ -522,124 +452,6 @@ function MeetScreen({
   dogImage: string;
   name: string;
   setName: (name: string) => void;
-  onNext: () => void;
-}) {
-  const [rotation, setRotation] = useState(0);
-  const [dragging, setDragging] = useState(false);
-  const [startX, setStartX] = useState(0);
-  const [called, setCalled] = useState(false);
-  const [petting, setPetting] = useState(false);
-  const [tech, setTech] = useState(false);
-  const [zoom, setZoom] = useState(1);
-  const spatial = useSpatialPointer();
-
-  const callDog = () => {
-    setCalled(true);
-    window.setTimeout(() => setCalled(false), 1200);
-  };
-
-  useEffect(() => {
-    const keydown = (event: KeyboardEvent) => {
-      if (event.key.toLowerCase() === "q") callDog();
-    };
-    window.addEventListener("keydown", keydown);
-    return () => window.removeEventListener("keydown", keydown);
-  }, []);
-
-  const pointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    setDragging(true);
-    setStartX(event.clientX - rotation);
-    event.currentTarget.setPointerCapture(event.pointerId);
-  };
-
-  const pointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (dragging) setRotation(event.clientX - startX);
-  };
-
-  return (
-    <section
-      className="screen meet-screen"
-      onPointerMove={spatial.onPointerMove}
-      style={spatial.style}
-    >
-      <SpatialLayers word="COMPANION" />
-      <TopBar screen={2} />
-      <div className="meet-title">
-        <ComicHeading
-          eyebrow="RECONSTRUCTION COMPLETE"
-          light
-          subtitle="Your adventure companion is ready."
-          title="MEET YOUR DOG"
-        />
-      </div>
-      <DogNameplate name={name} onChange={setName} />
-      <div
-        className={`dog-stage ${dragging ? "dog-stage--dragging" : ""}`}
-        onPointerDown={pointerDown}
-        onPointerMove={pointerMove}
-        onPointerUp={() => setDragging(false)}
-        onWheel={(event) => setZoom((current) => Math.max(0.88, Math.min(1.16, current - event.deltaY * 0.0005)))}
-      >
-        <div className="stage-glow" />
-        <div className="dog-platform">
-          <span />
-          <span />
-          <span />
-        </div>
-        <div
-          className={`dog-character ${called ? "dog-character--called" : ""} ${petting ? "dog-character--petted" : ""}`}
-          style={{ transform: `scale(${zoom}) rotateY(${rotation / 3}deg) rotateZ(${Math.sin(rotation / 80) * 1.2}deg)` }}
-        >
-          <img alt={`${name}, your reconstructed adventure companion`} draggable="false" src={dogImage} />
-          <span className="dog-rim" />
-          {tech && (
-            <div className="tech-overlay">
-              <i className="joint joint--one" />
-              <i className="joint joint--two" />
-              <i className="joint joint--three" />
-              <i className="joint joint--four" />
-              <span>IK // LIVE</span>
-            </div>
-          )}
-          {petting && <span className="pet-impact">♥ GOOD DOG!</span>}
-          {called && <span className="call-impact">HEY!</span>}
-        </div>
-        <button
-          className="pet-target"
-          onPointerDown={(event) => {
-            event.stopPropagation();
-            setPetting(true);
-          }}
-          onPointerLeave={() => setPetting(false)}
-          onPointerUp={() => setPetting(false)}
-          type="button"
-        >
-          <InteractionPrompt>{petting ? "GOOD DOG!" : "HOLD TO PET"}</InteractionPrompt>
-        </button>
-      </div>
-      <div className="rotate-hint">
-        <Icon name="rotate" size={18} />
-        <strong>DRAG TO ROTATE</strong>
-        <span>·</span>
-        <span>SCROLL TO ZOOM</span>
-      </div>
-      <TechDebugToggle active={tech} onToggle={() => setTech(!tech)} />
-      <div className="meet-footer">
-        <GameCTA className="adventure-cta" onClick={onNext}>
-          START AN ADVENTURE
-        </GameCTA>
-      </div>
-    </section>
-  );
-}
-
-function QuestHub({
-  dogImage,
-  name,
-  onNext,
-}: {
-  dogImage: string;
-  name: string;
   onNext: (quest: Quest) => void;
 }) {
   const spatial = useSpatialPointer();
@@ -648,17 +460,11 @@ function QuestHub({
   const [dogDrag, setDogDrag] = useState(false);
   const [dogStart, setDogStart] = useState(0);
   const [petting, setPetting] = useState(false);
-  const [listening, setListening] = useState(false);
-  const [called, setCalled] = useState(false);
   const [pageRotation, setPageRotation] = useState({ x: 2, y: -5 });
   const [pageDrag, setPageDrag] = useState(false);
   const [pageStart, setPageStart] = useState({ x: 0, y: 0 });
   const [entering, setEntering] = useState<string | null>(null);
 
-  const callDog = () => {
-    setCalled(true);
-    window.setTimeout(() => setCalled(false), 850);
-  };
   const selectQuest = (quest: string | null) => {
     if (!entering) setActiveQuest(quest);
   };
@@ -678,7 +484,7 @@ function QuestHub({
       style={spatial.style}
     >
       <SpatialLayers word="ADVENTURE" />
-      <TopBar screen={3} />
+      <TopBar screen={2} />
       <div className="hub-header">
         <ComicHeading
           eyebrow="ISSUE NO. 01"
@@ -688,7 +494,7 @@ function QuestHub({
       <div className="hub-companion">
         <div className="hub-companion-label">
           <small>YOUR COMPANION</small>
-          <strong>{name}</strong>
+          <DogNameEditor name={name} onChange={setName} />
           <span>{activeQuest ? `REACTING: ${activeQuest}` : "READY TO EXPLORE"}</span>
         </div>
         <div
@@ -703,7 +509,7 @@ function QuestHub({
         >
           <div className="hub-platform"><i /><i /></div>
           <div
-            className={`hub-dog hub-dog--${activeQuest ?? "idle"} ${called ? "hub-dog--called" : ""} ${petting ? "hub-dog--petted" : ""}`}
+            className={`hub-dog hub-dog--${activeQuest ?? "idle"} ${petting ? "hub-dog--petted" : ""}`}
             style={{ transform: `rotateY(${dogRotation / 4 + (activeQuest ? 8 : 0)}deg)` }}
           >
             <img alt={`${name}, waiting to choose an adventure`} draggable="false" src={dogImage} />
@@ -719,8 +525,6 @@ function QuestHub({
           />
         </div>
         <div className="hub-dog-controls">
-          <button onClick={callDog} type="button"><kbd>Q</kbd> CALL</button>
-          <MicInput listening={listening} onListening={(value) => { setListening(value); if (value) callDog(); }} />
           <span><Icon name="rotate" size={14} /> DRAG DOG</span>
         </div>
       </div>
@@ -784,7 +588,7 @@ function QuestIntro({ dogImage, name, quest }: { dogImage: string; name: string;
       style={spatial.style}
     >
       <SpatialLayers word="PORTAL" />
-      <TopBar screen={4} />
+      <TopBar screen={3} />
       <div className="world-panel">
         <img alt={`${quest.chapter.toLowerCase()} quest world`} src={quest.image} />
         <div className="world-vignette" />
@@ -833,7 +637,7 @@ export default function App() {
   const next = () => {
     setTransitioning(true);
     window.setTimeout(() => {
-      setScreen((current) => Math.min(4, current + 1));
+      setScreen((current) => Math.min(3, current + 1));
       window.scrollTo(0, 0);
       window.setTimeout(() => setTransitioning(false), 80);
     }, 520);
@@ -854,24 +658,17 @@ export default function App() {
         />
       )}
       {screen === 2 && (
-        <MeetScreen
-          dogImage={dogImage}
-          name={dogName}
-          onNext={next}
-          setName={setDogName}
-        />
-      )}
-      {screen === 3 && (
         <QuestHub
           dogImage={dogImage}
           name={dogName}
+          setName={setDogName}
           onNext={(chosen) => {
             setQuest(chosen);
             next();
           }}
         />
       )}
-      {screen === 4 && <QuestIntro dogImage={dogImage} name={dogName} quest={quest} />}
+      {screen === 3 && <QuestIntro dogImage={dogImage} name={dogName} quest={quest} />}
       <div aria-hidden="true" className="transition-slice transition-slice--one" />
       <div aria-hidden="true" className="transition-slice transition-slice--two" />
       <div aria-hidden="true" className="transition-slice transition-slice--three" />
