@@ -14,19 +14,28 @@ function fixture() {
       height: 600,
     }),
   }) as unknown as HTMLElement
+  const played: DogAction[] = []
+  let actionRate = 1
   const dog = {
     group: new THREE.Group(),
     sampleCount: 50000,
     paused: false,
     speed: 1,
+    get actionRate() {
+      return actionRate
+    },
     action: "idle" as DogAction,
     availableActions: ["idle", "walk", "spin"],
+    setActionRate(rate: number) {
+      actionRate = rate
+    },
     playAction(action: DogAction) {
       this.action = action
+      played.push(action)
     },
   } as Dog
   const fetch = new FetchInteraction(dog, scene, camera, viewport)
-  return { dog, fetch, scene }
+  return { dog, fetch, scene, played }
 }
 
 describe("fetch interaction", () => {
@@ -88,10 +97,35 @@ describe("fetch interaction", () => {
     fetch.throwTo(new THREE.Vector3(2, 0, 0))
     for (let frame = 0; frame < 18; frame++) fetch.update(1 / 30)
     expect(dog.action).toBe("run")
+    expect(dog.actionRate).toBeCloseTo(2.1 / 4.7)
     fetch.reset()
+    expect(dog.actionRate).toBe(1)
     fetch.throwTo(new THREE.Vector3(1, 0, 0))
     for (let frame = 0; frame < 18; frame++) fetch.update(1 / 30)
     expect(dog.action).toBe("walk")
+    expect(dog.actionRate).toBeCloseTo(0.6)
+    fetch.dispose()
+  })
+
+  it("keeps gait phase through pickup and turns before traveling home", () => {
+    const { dog, fetch, played } = fixture()
+    dog.availableActions.push("run")
+    dog.speed = 1.5
+    fetch.throwTo(new THREE.Vector3(0, 0, -2))
+    for (let frame = 0; frame < 120 && fetch.state !== "returning"; frame++)
+      fetch.update(1 / 30)
+    expect(fetch.state).toBe("returning")
+    expect(dog.action).toBe("run")
+    expect(dog.actionRate).toBeCloseTo(2.1 / 4.7)
+    expect(dog.speed).toBe(1.5)
+    expect(played.filter((action) => action === "run")).toHaveLength(1)
+    const pickup = dog.group.position.clone()
+    fetch.update(1 / 30)
+    expect(dog.group.position.distanceTo(pickup)).toBeLessThan(0.001)
+    for (let frame = 0; frame < 120 && fetch.state !== "idle"; frame++)
+      fetch.update(1 / 30)
+    expect(fetch.state).toBe("idle")
+    expect(dog.actionRate).toBe(1)
     fetch.dispose()
   })
 })

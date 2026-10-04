@@ -8,6 +8,9 @@ export type FetchState =
   | "returning"
   | "settling"
 
+const TRAVEL_SPEED = { walk: 1.35, run: 2.1 } as const
+const CONTACT_GAIT_SPEED = { walk: 2.25, run: 4.7 } as const
+
 export class FetchInteraction {
   readonly ball = new THREE.Group()
   state: FetchState = "idle"
@@ -29,6 +32,9 @@ export class FetchInteraction {
   private readonly throwStart = new THREE.Vector3()
   private readonly floor = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
   private readonly raycaster = new THREE.Raycaster()
+  private readonly mouthOffset = new THREE.Vector3(0, 0.3, -0.36)
+  private readonly rotatedMouthOffset = new THREE.Vector3()
+  private readonly worldRotation = new THREE.Quaternion()
   private throwProgress = 0
   private locomotion: "walk" | "run" = "walk"
   private pointerDown?: { id: number; x: number; y: number }
@@ -95,6 +101,9 @@ export class FetchInteraction {
         0.72 * Math.sin(Math.PI * progress) + 0.12 * progress
       if (progress === 1) {
         this.state = "chasing"
+        this.dog.setActionRate(
+          TRAVEL_SPEED[this.locomotion] / CONTACT_GAIT_SPEED[this.locomotion],
+        )
         this.dog.playAction(this.locomotion)
       }
       return
@@ -102,11 +111,11 @@ export class FetchInteraction {
     if (this.state === "chasing") {
       if (this.moveToward(this.pickupPoint, step)) {
         this.state = "returning"
-        this.dog.playAction(this.locomotion)
       }
     } else if (this.state === "returning") {
       if (this.moveToward(this.home, step)) {
         this.state = "settling"
+        this.dog.setActionRate(1)
         this.dog.playAction("idle")
         this.dropBall()
       }
@@ -122,6 +131,7 @@ export class FetchInteraction {
     if (this.disposed) return
     this.state = "idle"
     this.ball.visible = false
+    this.dog.setActionRate(1)
     this.dog.playAction("idle")
   }
 
@@ -153,10 +163,12 @@ export class FetchInteraction {
       this.dog.group.position.copy(point)
       return true
     }
-    this.turnToward(Math.atan2(-direction.x, -direction.z), delta)
+    const heading = Math.atan2(-direction.x, -direction.z)
+    this.turnToward(heading, delta)
+    const facing = Math.max(0, Math.cos(this.angleDifference(heading)))
     const travel = Math.min(
       distance,
-      (this.locomotion === "run" ? 2.1 : 1.35) * delta,
+      TRAVEL_SPEED[this.locomotion] * delta * facing,
     )
     this.dog.group.position.addScaledVector(direction, travel / distance)
     if (distance <= travel + 0.08) {
@@ -181,6 +193,15 @@ export class FetchInteraction {
 
   private carryBall(): void {
     this.dog.group.updateWorldMatrix(true, false)
+    const jaw = this.dog.group.getObjectByName("joint_20")
+    if (jaw) {
+      jaw.getWorldPosition(this.ball.position)
+      this.rotatedMouthOffset
+        .copy(this.mouthOffset)
+        .applyQuaternion(this.dog.group.getWorldQuaternion(this.worldRotation))
+      this.ball.position.add(this.rotatedMouthOffset)
+      return
+    }
     this.ball.position.copy(
       this.dog.group.localToWorld(new THREE.Vector3(0, 1.15, -0.72)),
     )
