@@ -3,7 +3,9 @@ import {
   ChangeEvent,
   DragEvent,
   PointerEvent as ReactPointerEvent,
+  KeyboardEvent as ReactKeyboardEvent,
   ReactNode,
+  useEffect,
   useRef,
   useState,
 } from "react";
@@ -216,49 +218,122 @@ function GameCTA({
   );
 }
 
-function UploadZone({
-  onFile,
-}: {
-  onFile: (file: File) => void;
-}) {
+type ComicFile = {
+  url: string;
+  name: string;
+  isImage: boolean;
+};
+
+// Click-to-browse plus drag-and-drop for a single file
+function useFileDrop(accepts: (file: File) => boolean, onFile: (file: File) => void) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
-
-  const drop = (event: DragEvent<HTMLButtonElement>) => {
-    event.preventDefault();
-    setDragging(false);
-    const file = event.dataTransfer.files[0];
-    if (file?.type.startsWith("image/")) onFile(file);
+  const take = (file: File | undefined) => {
+    if (file && accepts(file)) onFile(file);
   };
+  return {
+    dragging,
+    open: () => inputRef.current?.click(),
+    dropProps: {
+      onDragEnter: () => setDragging(true),
+      onDragLeave: () => setDragging(false),
+      onDragOver: (event: DragEvent<HTMLElement>) => event.preventDefault(),
+      onDrop: (event: DragEvent<HTMLElement>) => {
+        event.preventDefault();
+        setDragging(false);
+        take(event.dataTransfer.files[0]);
+      },
+    },
+    inputProps: {
+      ref: inputRef,
+      className: "visually-hidden",
+      type: "file",
+      tabIndex: -1,
+      onChange: (event: ChangeEvent<HTMLInputElement>) => {
+        take(event.target.files?.[0]);
+        event.target.value = "";
+      },
+    },
+  };
+}
+
+const isImage = (file: File) => file.type.startsWith("image/");
+
+function UploadZone({
+  preview,
+  onFile,
+}: {
+  preview: string;
+  onFile: (file: File) => void;
+}) {
+  const { dragging, open, dropProps, inputProps } = useFileDrop(isImage, onFile);
 
   return (
     <>
       <button
         className={`upload-zone ${dragging ? "upload-zone--dragging" : ""}`}
-        onClick={() => inputRef.current?.click()}
-        onDragEnter={() => setDragging(true)}
-        onDragLeave={() => setDragging(false)}
-        onDragOver={(event) => event.preventDefault()}
-        onDrop={drop}
+        onClick={open}
         type="button"
+        {...dropProps}
       >
-        <span className="upload-burst">
-          <Icon name="upload" size={31} />
-        </span>
-        <strong>DRAG &amp; DROP A PHOTO HERE</strong>
+        {preview ? (
+          <img alt="Your dog photo" className="upload-thumb" src={preview} />
+        ) : (
+          <span className="upload-burst">
+            <Icon name="upload" size={31} />
+          </span>
+        )}
+        <strong>{preview ? "DOG PHOTO ADDED" : "DRAG & DROP A PHOTO HERE"}</strong>
         <span className="file-type">JPG / PNG</span>
-        <span className="upload-tip">Best with a clear, full-body photo</span>
+        <span className="upload-tip">
+          {preview ? "Click or drop a new photo to replace it" : "Best with a clear, full-body photo"}
+        </span>
       </button>
-      <input
-        ref={inputRef}
-        accept="image/jpeg,image/png"
-        className="visually-hidden"
-        onChange={(event: ChangeEvent<HTMLInputElement>) => {
-          const file = event.target.files?.[0];
-          if (file) onFile(file);
-        }}
-        type="file"
-      />
+      <input accept="image/jpeg,image/png" {...inputProps} />
+    </>
+  );
+}
+
+function ComicDrop({ comic, onFile }: { comic: ComicFile | null; onFile: (file: File) => void }) {
+  const { dragging, open, dropProps, inputProps } = useFileDrop(
+    (file) => isImage(file) || file.type === "application/pdf",
+    onFile,
+  );
+
+  return (
+    <>
+      <button
+        aria-label={comic ? `Replace your comic (${comic.name})` : "Upload a comic"}
+        className={`photo-frame ${comic ? "photo-frame--loaded" : ""} ${dragging ? "photo-frame--dragging" : ""}`}
+        onClick={open}
+        type="button"
+        {...dropProps}
+      >
+        <div className="photo-frame__inner">
+          {comic?.isImage ? (
+            <>
+              <img alt={`Your comic: ${comic.name}`} src={comic.url} />
+              <span className="scan-line" />
+            </>
+          ) : comic ? (
+            <div className="comic-file">
+              <Icon name="upload" size={34} />
+              <strong>COMIC LOADED</strong>
+              <small>{comic.name}</small>
+            </div>
+          ) : (
+            <img
+              alt="Comic: a cheerful dog says “Upload a comic here” while a dog in glasses replies “I’m waiting…”"
+              className="photo-placeholder"
+              src="/upload-placeholder.png"
+            />
+          )}
+          <span className="photo-frame__cta">
+            <Icon name="upload" size={16} /> {comic ? "REPLACE COMIC" : "CLICK OR DROP YOUR COMIC"}
+          </span>
+        </div>
+      </button>
+      <input accept="image/*,application/pdf" {...inputProps} />
     </>
   );
 }
@@ -374,11 +449,15 @@ function TopBar({ screen }: { screen: number }) {
 
 function UploadScreen({
   dogImage,
+  comic,
   onFile,
+  onComic,
   onNext,
 }: {
   dogImage: string;
+  comic: ComicFile | null;
   onFile: (file: File) => void;
+  onComic: (file: File) => void;
   onNext: () => void;
 }) {
   const spatial = useSpatialPointer();
@@ -402,7 +481,7 @@ function UploadScreen({
             subtitle="Bring your dog into the game."
             title="UPLOAD YOUR DOG"
           />
-          <UploadZone onFile={receiveFile} />
+          <UploadZone onFile={receiveFile} preview={dogImage} />
           <div className="upload-actions">
             <GameCTA onClick={onNext}>BRING THEM TO LIFE</GameCTA>
           </div>
@@ -418,22 +497,7 @@ function UploadScreen({
           </div>
           <div aria-hidden="true" className="photo-speed-lines" />
           <span className="scribble scribble--one">YOUR DOG</span>
-          <div className="photo-frame">
-            <div className="photo-frame__inner">
-              {dogImage ? (
-                <>
-                  <img alt="Your dog ready to become a game character" src={dogImage} />
-                  <span className="scan-line" />
-                </>
-              ) : (
-                <img
-                  alt="Comic: a cheerful dog says “Upload a comic here” while a dog in glasses replies “I’m waiting…”"
-                  className="photo-placeholder"
-                  src="/upload-placeholder.png"
-                />
-              )}
-            </div>
-          </div>
+          <ComicDrop comic={comic} onFile={onComic} />
           <div className="transform-arrow">
             <span>PHOTO</span>
             <Icon name="arrow" size={25} />
@@ -445,6 +509,142 @@ function UploadScreen({
       <div className="red-slash" />
       <img alt="" aria-hidden="true" className="corner-mascot" src="/otter-boba.gif" />
     </section>
+  );
+}
+
+const DOG_LAYERS = 7;
+const DOG_DEPTH = 26;
+
+// Spin-anywhere viewer: the photo is stacked into thin layers so it has depth from every angle.
+// Drag to orbit (with a little momentum), tap to pet, arrow keys to turn.
+function DogViewer({ dogImage, name, mood }: { dogImage: string; name: string; mood: string }) {
+  const [angle, setAngle] = useState({ x: -6, y: -18 });
+  const [dragging, setDragging] = useState(false);
+  const [petting, setPetting] = useState(false);
+  const drag = useRef({ x: 0, y: 0, angleX: 0, angleY: 0, lastX: 0, velocity: 0, moved: false });
+  const spin = useRef(0);
+  const petTimer = useRef(0);
+
+  useEffect(
+    () => () => {
+      cancelAnimationFrame(spin.current);
+      window.clearTimeout(petTimer.current);
+    },
+    [],
+  );
+
+  const pet = () => {
+    setPetting(true);
+    window.clearTimeout(petTimer.current);
+    petTimer.current = window.setTimeout(() => setPetting(false), 900);
+  };
+
+  const coast = (velocity: number) => {
+    cancelAnimationFrame(spin.current);
+    const step = () => {
+      velocity *= 0.94;
+      if (Math.abs(velocity) < 0.05) return;
+      setAngle((current) => ({ ...current, y: current.y + velocity }));
+      spin.current = requestAnimationFrame(step);
+    };
+    spin.current = requestAnimationFrame(step);
+  };
+
+  const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const turns: Record<string, [number, number]> = {
+      ArrowLeft: [0, -20],
+      ArrowRight: [0, 20],
+      ArrowUp: [8, 0],
+      ArrowDown: [-8, 0],
+    };
+    if (turns[event.key]) {
+      event.preventDefault();
+      const [dx, dy] = turns[event.key];
+      setAngle((current) => ({ x: Math.max(-25, Math.min(25, current.x + dx)), y: current.y + dy }));
+    } else if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      pet();
+    }
+  };
+
+  const layers = Array.from({ length: DOG_LAYERS }, (_, index) => {
+    const depth = -DOG_DEPTH / 2 + (index * DOG_DEPTH) / (DOG_LAYERS - 1);
+    const face = index === DOG_LAYERS - 1 ? "front" : index === 0 ? "back" : "core";
+    return { depth, face };
+  });
+
+  return (
+    <div
+      aria-label={`${name} in 3D. Drag or use the arrow keys to spin, press Enter to pet.`}
+      className={`dog-viewer ${dragging ? "dog-viewer--dragging" : ""}`}
+      onKeyDown={onKeyDown}
+        onPointerCancel={() => setDragging(false)}
+        onPointerDown={(event) => {
+          cancelAnimationFrame(spin.current);
+          drag.current = {
+            x: event.clientX,
+            y: event.clientY,
+            angleX: angle.x,
+            angleY: angle.y,
+            lastX: event.clientX,
+            velocity: 0,
+            moved: false,
+          };
+          setDragging(true);
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }}
+        onPointerMove={(event) => {
+          if (!dragging) return;
+          const state = drag.current;
+          const dx = event.clientX - state.x;
+          const dy = event.clientY - state.y;
+          if (Math.abs(dx) + Math.abs(dy) > 5) state.moved = true;
+          state.velocity = (event.clientX - state.lastX) * 0.55;
+          state.lastX = event.clientX;
+          setAngle({
+            x: Math.max(-25, Math.min(25, state.angleX - dy * 0.3)),
+            y: state.angleY + dx * 0.55,
+          });
+        }}
+        onPointerUp={() => {
+          setDragging(false);
+          if (!drag.current.moved) pet();
+          else coast(drag.current.velocity);
+        }}
+      role="img"
+      tabIndex={0}
+    >
+      <div className="hub-dog-stage">
+        <div className="hub-platform">
+          <i />
+          <i />
+        </div>
+        <div className={`hub-dog hub-dog--${mood} ${petting ? "hub-dog--petted" : ""}`}>
+          <div className="dog-spinner" style={{ transform: `rotateX(${angle.x}deg) rotateY(${angle.y}deg)` }}>
+            {dogImage ? (
+              layers.map(({ depth, face }) => (
+                <div
+                  className={`dog-layer dog-layer--${face}`}
+                  key={depth}
+                  style={{ transform: `translateZ(${depth}px)` }}
+                >
+                  <img alt="" draggable="false" src={dogImage} />
+                </div>
+              ))
+            ) : (
+              <div className="dog-placeholder">
+                <Icon name="upload" size={30} />
+                <strong>NO PHOTO YET</strong>
+              </div>
+            )}
+          </div>
+          {petting && <span className="hub-heart">♥</span>}
+        </div>
+      </div>
+      <p className="dog-viewer-hint">
+        <Icon name="rotate" size={14} /> DRAG TO SPIN 360° · TAP TO PET
+      </p>
+    </div>
   );
 }
 
@@ -463,10 +663,6 @@ function QuestHub({
 }) {
   const spatial = useSpatialPointer();
   const [activeQuest, setActiveQuest] = useState<string | null>(null);
-  const [dogRotation, setDogRotation] = useState(0);
-  const [dogDrag, setDogDrag] = useState(false);
-  const [dogStart, setDogStart] = useState(0);
-  const [petting, setPetting] = useState(false);
   const [entering, setEntering] = useState<string | null>(null);
 
   const selectQuest = (quest: string | null) => {
@@ -501,43 +697,11 @@ function QuestHub({
           <DogNameEditor name={name} onChange={setName} />
           <span>{activeQuest ? `REACTING: ${activeQuest}` : "READY TO EXPLORE"}</span>
         </div>
-        <div
-          className="hub-dog-stage"
-          onPointerDown={(event) => {
-            setDogDrag(true);
-            setDogStart(event.clientX - dogRotation);
-            event.currentTarget.setPointerCapture(event.pointerId);
-          }}
-          onPointerMove={(event) => dogDrag && setDogRotation(event.clientX - dogStart)}
-          onPointerUp={() => setDogDrag(false)}
-        >
-          <div className="hub-platform"><i /><i /></div>
-          <div
-            className={`hub-dog hub-dog--${activeQuest ?? "idle"} ${petting ? "hub-dog--petted" : ""}`}
-            style={{ transform: `rotateY(${dogRotation / 4 + (activeQuest ? 8 : 0)}deg)` }}
-          >
-            {dogImage ? (
-              <img alt={`${displayName}, waiting to choose an adventure`} draggable="false" src={dogImage} />
-            ) : (
-              <div className="dog-placeholder">
-                <Icon name="upload" size={30} />
-                <strong>NO PHOTO YET</strong>
-              </div>
-            )}
-            {petting && <span className="hub-heart">♥</span>}
-          </div>
-          <button
-            aria-label={`Pet ${displayName}`}
-            className="hub-pet-target"
-            onPointerDown={(event) => { event.stopPropagation(); setPetting(true); }}
-            onPointerLeave={() => setPetting(false)}
-            onPointerUp={() => setPetting(false)}
-            type="button"
-          />
-        </div>
-        <div className="hub-dog-controls">
-          <span><Icon name="rotate" size={14} /> DRAG DOG</span>
-        </div>
+        <DogViewer
+          dogImage={dogImage}
+          mood={activeQuest ?? "idle"}
+          name={displayName}
+        />
       </div>
       <div className="page-zone">
         <div className="page-zone-title">
@@ -627,6 +791,7 @@ export default function App() {
   const [screen, setScreen] = useState(1);
   const [wipeTo, setWipeTo] = useState<number | null>(null);
   const [dogImage, setDogImage] = useState("");
+  const [comic, setComic] = useState<ComicFile | null>(null);
   const [dogName, setDogName] = useState("");
   const displayName = dogName.trim() || "YOUR DOG";
   const [quest, setQuest] = useState(QUESTS[0]);
@@ -644,12 +809,18 @@ export default function App() {
   };
 
   const setFile = (file: File) => {
+    if (dogImage) URL.revokeObjectURL(dogImage);
     setDogImage(URL.createObjectURL(file));
+  };
+
+  const setComicFile = (file: File) => {
+    if (comic) URL.revokeObjectURL(comic.url);
+    setComic({ url: URL.createObjectURL(file), name: file.name, isImage: isImage(file) });
   };
 
   return (
     <main className={`game-shell screen-${screen}`}>
-      {screen === 1 && <UploadScreen dogImage={dogImage} onFile={setFile} onNext={next} />}
+      {screen === 1 && <UploadScreen comic={comic} dogImage={dogImage} onComic={setComicFile} onFile={setFile} onNext={next} />}
       {screen === 2 && (
         <QuestHub
           dogImage={dogImage}

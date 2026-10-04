@@ -291,6 +291,16 @@ input:focus-visible {
   clip-path: polygon(50% 0, 61% 21%, 85% 10%, 81% 37%, 100% 50%, 78% 61%, 88% 87%, 61% 80%, 50% 100%, 39% 79%, 12% 89%, 21% 61%, 0 50%, 22% 39%, 12% 12%, 39% 21%);
 }
 
+.upload-thumb {
+  grid-row: 1 / 3;
+  width: 62px;
+  height: 62px;
+  border: 3px solid var(--ink);
+  object-fit: cover;
+  transform: rotate(-4deg);
+  box-shadow: 3px 3px 0 var(--red);
+}
+
 .upload-zone strong {
   align-self: end;
   font: 800 18px/1 "Barlow Condensed", sans-serif;
@@ -329,9 +339,14 @@ input:focus-visible {
 }
 
 .photo-frame {
+  display: block;
   width: min(36vw, 510px);
   height: min(65vh, 620px);
   padding: 10px;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
   background: var(--ink);
   transform: rotate(4deg);
   clip-path: polygon(4% 3%, 100% 0, 95% 92%, 12% 100%, 0 17%);
@@ -368,6 +383,74 @@ input:focus-visible {
   object-fit: cover;
   object-position: center 30%;
   filter: none;
+}
+
+.photo-frame__cta {
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  bottom: 13%;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 13px;
+  border: 3px solid var(--ink);
+  background: var(--yellow);
+  color: var(--ink);
+  font: italic 900 15px/1 "Barlow Condensed", sans-serif;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  box-shadow: 4px 4px 0 var(--ink);
+  opacity: 0;
+  transform: translate(-50%, 8px) rotate(-3deg);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.photo-frame:hover .photo-frame__cta,
+.photo-frame:focus-visible .photo-frame__cta,
+.photo-frame--dragging .photo-frame__cta {
+  opacity: 1;
+  transform: translate(-50%, 0) rotate(-3deg);
+}
+
+.photo-frame:focus-visible {
+  outline: 4px solid var(--blue);
+  outline-offset: 6px;
+}
+
+.photo-frame--dragging .photo-frame__inner {
+  box-shadow: inset 0 0 0 6px var(--yellow);
+}
+
+.comic-file {
+  position: absolute;
+  inset: 8% 10%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 3px dashed rgba(255, 250, 240, 0.35);
+  color: var(--cream);
+  text-align: center;
+}
+
+.comic-file svg {
+  color: var(--yellow);
+}
+
+.comic-file strong {
+  font: italic 900 clamp(28px, 3.4vw, 46px)/0.9 "Barlow Condensed", sans-serif;
+}
+
+.comic-file small {
+  max-width: 85%;
+  overflow: hidden;
+  color: rgba(255, 250, 240, 0.7);
+  font-size: 11px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .photo-frame__inner::after {
@@ -413,14 +496,14 @@ input:focus-visible {
 
 .impact-word {
   position: absolute;
-  right: -2%;
-  bottom: 11%;
+  right: -6%;
+  top: 30%;
   padding: 10px 22px;
   background: var(--red);
   border: 4px solid var(--ink);
   color: var(--cream);
   font: italic 900 clamp(28px, 3vw, 48px)/0.9 "Barlow Condensed", sans-serif;
-  transform: rotate(-8deg);
+  transform: translateZ(150px) rotate(-8deg);
   box-shadow: 8px 8px 0 var(--ink);
 }
 
@@ -954,7 +1037,8 @@ input:focus-visible {
     padding: 20px;
   }
 
-  .upload-burst {
+  .upload-burst,
+  .upload-thumb {
     width: 48px;
     height: 48px;
   }
@@ -994,7 +1078,7 @@ input:focus-visible {
 
   .impact-word {
     right: 0;
-    bottom: 3%;
+    top: 26%;
   }
 
   .hub-screen {
@@ -1247,7 +1331,12 @@ input:focus-visible {
   transition: transform 0.6s cubic-bezier(0.18, 0.9, 0.25, 1), filter 0.6s ease;
 }
 
-.upload-screen--loaded .photo-frame {
+.photo-frame:hover,
+.photo-frame--dragging {
+  transform: rotateY(-4deg) rotateX(0) rotateZ(3deg) translate3d(0, -8px, 95px);
+}
+
+.photo-frame--loaded {
   transform: rotateY(-3deg) rotateX(-1deg) rotateZ(2deg) translate3d(0, -14px, 115px);
   filter: drop-shadow(40px 52px 22px rgba(10, 11, 15, 0.3));
   animation: photo-impact 0.65s cubic-bezier(0.18, 0.9, 0.25, 1);
@@ -1458,13 +1547,24 @@ input:focus-visible {
   display: grid;
   place-items: center;
   perspective: 900px;
+  pointer-events: none;
+}
+
+.dog-viewer {
+  position: absolute;
+  inset: 0;
   cursor: grab;
   user-select: none;
   touch-action: none;
 }
 
-.hub-dog-stage:active {
+.dog-viewer--dragging {
   cursor: grabbing;
+}
+
+.dog-viewer:focus-visible {
+  outline: 3px solid var(--yellow);
+  outline-offset: -6px;
 }
 
 .hub-dog {
@@ -1472,9 +1572,30 @@ input:focus-visible {
   z-index: 3;
   width: min(33vw, 450px);
   height: min(60vh, 590px);
-  transform-style: preserve-3d;
+  perspective: 1200px;
   filter: drop-shadow(0 35px 24px rgba(0, 0, 0, 0.62));
   transition: transform 0.45s cubic-bezier(0.18, 0.9, 0.25, 1), filter 0.3s ease;
+}
+
+.dog-spinner {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+
+.dog-layer {
+  position: absolute;
+  inset: 0;
+}
+
+/* Inner layers give the cutout thickness when seen edge-on; the rear one reads as the dog's back */
+.hub-dog .dog-layer--core img {
+  filter: brightness(0.32) saturate(0.6);
+}
+
+.hub-dog .dog-layer--back img {
+  filter: brightness(0.55) saturate(0.75) sepia(0.2);
 }
 
 .hub-dog img {
@@ -1508,6 +1629,31 @@ input:focus-visible {
 .dog-placeholder strong {
   font: italic 900 26px/1 "Barlow Condensed", sans-serif;
   letter-spacing: 0.02em;
+}
+
+.dog-viewer-hint {
+  position: absolute;
+  z-index: 9;
+  left: 50%;
+  bottom: 4%;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  border: 1px solid rgba(255, 211, 34, 0.35);
+  background: rgba(6, 8, 12, 0.7);
+  color: #c9ced6;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  white-space: nowrap;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.dog-viewer-hint svg {
+  color: var(--yellow);
 }
 
 .hub-platform {
@@ -1566,57 +1712,6 @@ input:focus-visible {
   font-size: 42px;
   text-shadow: 3px 3px 0 var(--ink);
   animation: world-impact .85s both;
-}
-
-.hub-pet-target {
-  position: absolute;
-  z-index: 6;
-  width: 40%;
-  height: 52%;
-  border: 0;
-  background: transparent;
-  cursor: pointer;
-}
-
-.hub-dog-controls {
-  position: absolute;
-  z-index: 9;
-  left: 5%;
-  right: 4%;
-  bottom: 0;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  transform: translateZ(120px);
-}
-
-.hub-dog-controls > button:first-child {
-  height: 48px;
-  padding: 0 13px;
-  border: 1px solid #505866;
-  background: rgba(6,8,12,.78);
-  color: var(--cream);
-  cursor: pointer;
-  font-size: 9px;
-  font-weight: 800;
-  letter-spacing: .12em;
-}
-
-.hub-dog-controls kbd {
-  margin-right: 6px;
-  padding: 4px 6px;
-  background: var(--cream);
-  color: var(--ink);
-}
-
-.hub-dog-controls > span {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  color: #8d94a0;
-  font-size: 7px;
-  font-weight: 800;
-  letter-spacing: .12em;
 }
 
 .page-zone {
@@ -2038,13 +2133,7 @@ input:focus-visible {
     height: 390px;
   }
 
-  .hub-dog-controls {
-    left: 10%;
-  }
 
-  .hub-dog-controls > span {
-    display: none;
-  }
 
   .page-zone {
     top: 220px;
@@ -2101,11 +2190,6 @@ input:focus-visible {
     width: 70%;
   }
 
-  .hub-dog-controls {
-    left: 20px;
-    right: 20px;
-    justify-content: center;
-  }
 
   .page-zone {
     top: 680px;
