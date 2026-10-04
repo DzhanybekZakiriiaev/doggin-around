@@ -621,20 +621,25 @@ function QuestIntro({ dogImage, name, quest }: { dogImage: string; name: string;
   );
 }
 
+const TRANSITION_MS = 700;
+
 export default function App() {
   const [screen, setScreen] = useState(1);
-  const [transitioning, setTransitioning] = useState(false);
+  const [wipeTo, setWipeTo] = useState<number | null>(null);
   const [dogImage, setDogImage] = useState(SAMPLE_DOG);
   const [dogName, setDogName] = useState("MILO");
   const [quest, setQuest] = useState(QUESTS[0]);
 
+  // A panel sweeps across, the screen swaps while it's covered, then it sweeps off.
   const next = () => {
-    setTransitioning(true);
+    if (wipeTo !== null || screen >= 3) return;
+    const target = screen + 1;
+    setWipeTo(target);
     window.setTimeout(() => {
-      setScreen((current) => Math.min(3, current + 1));
+      setScreen(target);
       window.scrollTo(0, 0);
-      window.setTimeout(() => setTransitioning(false), 80);
-    }, 520);
+    }, TRANSITION_MS / 2);
+    window.setTimeout(() => setWipeTo(null), TRANSITION_MS);
   };
 
   const setFile = (file: File) => {
@@ -642,14 +647,8 @@ export default function App() {
   };
 
   return (
-    <main className={`game-shell screen-${screen} ${transitioning ? "is-transitioning" : ""}`}>
-      {screen === 1 && (
-        <UploadScreen
-          dogImage={dogImage}
-          onFile={setFile}
-          onNext={next}
-        />
-      )}
+    <main className={`game-shell screen-${screen}`}>
+      {screen === 1 && <UploadScreen dogImage={dogImage} onFile={setFile} onNext={next} />}
       {screen === 2 && (
         <QuestHub
           dogImage={dogImage}
@@ -662,9 +661,15 @@ export default function App() {
         />
       )}
       {screen === 3 && <QuestIntro dogImage={dogImage} name={dogName} quest={quest} />}
-      <div aria-hidden="true" className="transition-slice transition-slice--one" />
-      <div aria-hidden="true" className="transition-slice transition-slice--two" />
-      <div aria-hidden="true" className="transition-slice transition-slice--three" />
+      {wipeTo !== null && (
+        <div aria-hidden="true" className="screen-wipe">
+          <div className="screen-wipe__panel" />
+          <div className="screen-wipe__label">
+            <small>CHAPTER</small>
+            <strong>0{wipeTo}</strong>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
