@@ -52,7 +52,7 @@
   "jointsType": "uint8",
   "weightsType": "float32-le",
   "influencesPerSplat": 4,
-  "rigSha256": "c917ea4418f77c003fa24c2b007b27e4560b57834bc4639c5c189e5f029f7d57",
+  "rigSha256": "b38ec94f958e0a9e449515ed3439fc820104637a3b836c4fdf1941c040517c85",
   "inputSha256": "c7afcea18148d8118459d7177573ebc4dccbef0c8ed3c6b9a4f57b47856c314a",
   "selection": "Fixed rest-pose opacity times covariance volume to power one third, boosted for face, accessories, and dark detail",
   "alignment": {
@@ -91,5 +91,11 @@
       "head_total": 7212,
       "neck_total": 1781
     }
+  },
+  "jaw": {
+    "joint": "joint_21",
+    "affected_65536": 960,
+    "core_65536": 507,
+    "affected_50000": 771
   }
 }

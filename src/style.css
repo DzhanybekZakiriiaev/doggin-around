@@ -202,6 +202,23 @@ h2 {
   background: #ebeee2;
   border-radius: 12px;
 }
+.model-label {
+  display: block;
+  margin: 0 0 7px;
+  color: #69765b;
+  font-size: 11px;
+}
+#dog-model {
+  width: 100%;
+  margin: 0 0 12px;
+  padding: 11px 12px;
+  border: 1px solid #cbd2bf;
+  border-radius: 9px;
+  color: #26351f;
+  background: #f5f6ef;
+  font: inherit;
+  font-size: 13px;
+}
 .asset-icon {
   height: 45px;
   width: 45px;

@@ -1,7 +1,13 @@
 import { SparkRenderer } from "@sparkjsdev/spark"
 import * as THREE from "three"
 import { OrbitControls } from "three/addons/controls/OrbitControls.js"
-import { DOG_ACTIONS, Dog, type DogAction, type DogView } from "./dog"
+import {
+  DOG_ACTIONS,
+  Dog,
+  type DogAction,
+  type DogAppearance,
+  type DogView,
+} from "./dog"
 import { FetchInteraction } from "./fetch"
 import "./style.css"
 
@@ -18,8 +24,9 @@ app.innerHTML = `
     </section>
     <aside>
       <div class="eyebrow">02 / MEET YOUR DOG</div><h2>Your new companion.</h2><p class="intro">A photo, a rig, a little personality.</p>
+      <label class="model-label" for="dog-model">Choose your dog</label><select id="dog-model"><option value="huawei">Huawei's dog</option>${import.meta.env.DEV ? '<option value="tricolor">Tricolor dog</option>' : ""}</select>
       <div class="asset-card"><img class="asset-icon" src="/models/huawei-dog-reference.png" alt="" /><div><strong id="asset-name">Huawei's dog</strong><span id="asset-detail">Photo → rig → animated splats</span></div></div>
-      <details class="source-preview"><summary>See Huawei's original photo</summary><figure><img loading="lazy" src="/models/huawei-dog-reference.png" alt="White fluffy dog with sunglasses, flowers, and a blue bow" /><figcaption>Huawei's supplied photo</figcaption></figure><figure><img loading="lazy" src="/models/huawei-dog-fullbody.png" alt="Full-body extension of the supplied dog photo" /><figcaption>Generated full-body reference</figcaption></figure></details>
+      <details class="source-preview"><summary id="source-title">See Huawei's original photo</summary><figure><img id="source-original" loading="lazy" src="/models/huawei-dog-reference.png" alt="White fluffy dog with sunglasses, flowers, and a blue bow" /><figcaption id="source-caption">Huawei's supplied photo</figcaption></figure><figure><img id="source-standing" loading="lazy" src="/models/huawei-dog-fullbody.png" alt="Full-body extension of the supplied dog photo" /><figcaption>Generated full-body reference</figcaption></figure></details>
       <label class="upload" for="model-upload">↗ Import animated GLB<input id="model-upload" type="file" accept=".glb" /></label>
       <div class="section-label">GIVE IT SOMETHING TO DO</div>
       <div class="actions" role="group" aria-label="Dog actions">${DOG_ACTIONS.map(({ name, label, icon }) => `<button type="button" data-action="${name}" aria-pressed="${name === "idle"}" class="${name === "idle" ? "selected" : ""}"><span class="action-icon" aria-hidden="true">${icon}</span>${label}</button>`).join("")}</div>
@@ -76,7 +83,7 @@ scene.add(floor)
 const grid = new THREE.GridHelper(9, 18, 0xbfc6b5, 0xcbd1c0)
 grid.position.y = -0.02
 scene.add(grid)
-const dog = new Dog()
+const dog = new Dog(renderer)
 scene.add(dog.group)
 const fetchPlay = new FetchInteraction(dog, scene, camera, viewport)
 const barkAudio = element<HTMLAudioElement>("bark-audio")
@@ -102,6 +109,28 @@ let frames = 0
 let lastFps = performance.now()
 let lastFrame = performance.now()
 let currentUrl = "/models/dog-animated.glb"
+let currentModel = "huawei"
+const models = {
+  huawei: {
+    url: "/models/dog-animated.glb",
+    name: "Huawei's dog",
+    original: "/models/huawei-dog-reference.png",
+    standing: "/models/huawei-dog-fullbody.png",
+    alt: "White fluffy dog with sunglasses, flowers, and a blue bow",
+    appearance: undefined,
+  },
+  tricolor: {
+    url: "/models/tricolor-research/dog-animated.glb",
+    name: "Tricolor dog",
+    original: "/models/tricolor-reference.png",
+    standing: "/models/tricolor-standing-reference.png",
+    alt: "Fluffy tricolor dog with a white blaze, tan eyebrows, and black ears",
+    appearance: {
+      kind: "smal-pets-faces",
+      manifestUrl: "/models/tricolor-research/manifest.json",
+    } as DogAppearance,
+  },
+}
 
 function busy(value: boolean): void {
   loading = value
@@ -120,16 +149,21 @@ function busy(value: boolean): void {
     })
   element<HTMLInputElement>("density").disabled = value || !loaded
   element<HTMLInputElement>("model-upload").disabled = value
+  element<HTMLSelectElement>("dog-model").disabled = value
 }
 
-async function loadDog(url: string, name = "Huawei's dog"): Promise<void> {
+async function loadDog(
+  url: string,
+  name = "Huawei's dog",
+  appearance?: DogAppearance,
+): Promise<boolean> {
   stopBark()
   fetchPlay.reset()
   busy(true)
   element("notice").hidden = false
   element("notice").textContent = "Building your dog's Gaussians…"
   try {
-    await dog.loadDog(url)
+    await dog.loadDog(url, appearance)
     loaded = true
     dog.paused = false
     element("pause").textContent = "Pause"
@@ -142,14 +176,18 @@ async function loadDog(url: string, name = "Huawei's dog"): Promise<void> {
     element("notice").hidden = true
     element("render-status").textContent = "LIVE GAUSSIAN RENDERING"
     element("splat-count").textContent = dog.sampleCount.toLocaleString()
-    element("render-detail").textContent =
-      dog.maxDensity === 50000
+    element("render-detail").textContent = dog.hasFaceAppearance
+      ? "Reconstructed Gaussians follow the full animated mesh, including pose corrections."
+      : dog.maxDensity === 50000
         ? "Photo-generated Gaussians, driven by a real skeleton. Select a view to see how it works."
         : "Surface-sampled Gaussians, driven by the imported skeleton. Select a view to see how it works."
     const density = element<HTMLInputElement>("density")
+    density.min = dog.maxDensity < 10000 ? "1" : "10000"
+    density.step = dog.maxDensity % 10000 === 0 ? "10000" : "1"
     density.max = String(dog.maxDensity)
     density.value = String(dog.density)
     element("density-value").textContent = dog.density.toLocaleString()
+    return true
   } catch (error) {
     loaded = dog.sampleCount > 0
     element("notice").textContent =
@@ -157,10 +195,38 @@ async function loadDog(url: string, name = "Huawei's dog"): Promise<void> {
     element("render-status").textContent = loaded
       ? "PREVIOUS DOG LOADED"
       : "MODEL NEEDED"
+    return false
   } finally {
     busy(false)
   }
 }
+
+element<HTMLSelectElement>("dog-model").addEventListener(
+  "change",
+  async (event) => {
+    const selector = event.target as HTMLSelectElement
+    const key = selector.value as keyof typeof models
+    const model = models[key]
+    if (!(await loadDog(model.url, model.name, model.appearance))) {
+      selector.value = currentModel
+      return
+    }
+    currentModel = key
+    for (const id of ["source-original", "source-standing"]) {
+      const preview = element<HTMLImageElement>(id)
+      preview.src = id === "source-original" ? model.original : model.standing
+      preview.alt = model.alt
+    }
+    const icon = document.querySelector<HTMLImageElement>(".asset-icon")
+    if (icon) {
+      icon.src = model.original
+      icon.alt = model.alt
+    }
+    element("source-title").textContent =
+      `See ${key === "huawei" ? "Huawei's" : "the tricolor dog's"} original photo`
+    element("source-caption").textContent = `${model.name} reference photo`
+  },
+)
 
 document
   .querySelectorAll<HTMLButtonElement>("[data-action]")
@@ -217,6 +283,8 @@ density.addEventListener("change", async () => {
     await dog.rebuildSplats(Number(density.value))
     element("splat-count").textContent = dog.sampleCount.toLocaleString()
   } catch (error) {
+    density.value = String(dog.density)
+    element("density-value").textContent = dog.density.toLocaleString()
     element("notice").hidden = false
     element("notice").textContent = String(error)
   } finally {
@@ -278,7 +346,9 @@ renderer.setAnimationLoop(() => {
           : "DRAG TO ORBIT"
         : fetchPlay.state === "returning"
           ? "BRINGING IT BACK"
-          : "FETCHING THE BALL"
+          : fetchPlay.state === "picking-up"
+            ? "PICKING IT UP"
+            : "FETCHING THE BALL"
   }
   frames++
   if (now - lastFps > 1000) {

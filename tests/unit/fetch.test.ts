@@ -128,4 +128,67 @@ describe("fetch interaction", () => {
     expect(dog.actionRate).toBe(1)
     fetch.dispose()
   })
+
+  it("lowers the head for pickup before carrying the ball from the muzzle", () => {
+    const { dog, fetch, played } = fixture()
+    dog.availableActions.push("run", "sniff")
+    const jaw = new THREE.Bone()
+    jaw.name = "joint_21"
+    jaw.position.set(0, 1.2, -0.4)
+    const mouth = new THREE.Bone()
+    mouth.name = "joint_20"
+    mouth.position.set(0, -0.1, -0.2)
+    jaw.add(mouth)
+    dog.group.add(jaw)
+
+    fetch.throwTo(new THREE.Vector3(0, 0, -2))
+    for (let frame = 0; frame < 120 && fetch.state !== "picking-up"; frame++)
+      fetch.update(1 / 30)
+    expect(fetch.state).toBe("picking-up")
+    expect(dog.action).toBe("sniff")
+    expect(fetch.ball.position.y).toBeCloseTo(0.12)
+    const pickup = dog.group.position.clone()
+    expect(pickup.z).toBeCloseTo(-1.58)
+
+    for (let frame = 0; frame < 21; frame++) fetch.update(1 / 30)
+    expect(fetch.state).toBe("picking-up")
+    expect(dog.group.position.distanceTo(pickup)).toBeLessThan(0.001)
+    expect(fetch.ball.position.y).toBeCloseTo(0.12)
+
+    for (let frame = 0; frame < 30 && fetch.state !== "returning"; frame++)
+      fetch.update(1 / 30)
+    expect(fetch.state).toBe("returning")
+    expect(dog.action).toBe("run")
+    expect(played.slice(-2)).toEqual(["sniff", "run"])
+    expect(
+      fetch.ball.position.distanceTo(
+        mouth.localToWorld(new THREE.Vector3(0, -0.04, -0.1)),
+      ),
+    ).toBeLessThan(0.001)
+
+    fetch.reset()
+    expect(fetch.state).toBe("idle")
+    expect(fetch.ball.visible).toBe(false)
+    fetch.dispose()
+  })
+
+  it("cancels pickup cleanly when the ball is thrown again", () => {
+    const { dog, fetch } = fixture()
+    dog.availableActions.push("sniff")
+    fetch.throwTo(new THREE.Vector3(0, 0, -2))
+    for (let frame = 0; frame < 120 && fetch.state !== "picking-up"; frame++)
+      fetch.update(1 / 30)
+    expect(fetch.state).toBe("picking-up")
+    expect(dog.action).toBe("sniff")
+
+    expect(fetch.throwTo(new THREE.Vector3(1, 0, -1))).toBe(true)
+    expect(fetch.state).toBe("throwing")
+    expect(fetch.ball.visible).toBe(true)
+    fetch.reset()
+    expect(fetch.state).toBe("idle")
+    expect(dog.action).toBe("idle")
+    expect(fetch.ball.visible).toBe(false)
+    expect(dog.group.position.length()).toBe(0)
+    fetch.dispose()
+  })
 })

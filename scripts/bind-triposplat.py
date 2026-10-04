@@ -137,11 +137,36 @@ weights[head_mask] = 0
 weights[head_mask,accessory_metadata['head_joint']] = 1
 weights[neck_mask] = 0
 weights[neck_mask,accessory_metadata['neck_joint']] = 1
+
+def smoothstep(low, high, value):
+    t = np.clip((value-low)/(high-low),0,1)
+    return t*t*(3-2*t)
+
+
+jaw_index = name_to_bone['joint_21']
+jaw_tip_index = name_to_bone['joint_20']
+old_jaw = weights[:,jaw_index]+weights[:,jaw_tip_index]
+x,y,z = positions.T
+jaw_region = (old_jaw > 0.08) & (old_jaw < 0.9) & ~head_mask & ~neck_mask
+jaw_gain = jaw_region * smoothstep(.34,.39,y) * smoothstep(.065,.10,z)
+jaw_gain *= 1-smoothstep(.155,.20,z)
+jaw_gain *= 1-smoothstep(.09,.14,np.abs(x-.03))
+jaw_target = old_jaw+(.90-old_jaw)*jaw_gain
+other_bones = [index for index in range(len(bone_names)) if index not in (jaw_index,jaw_tip_index)]
+other_scale = np.divide(1-jaw_target,1-old_jaw,out=np.ones_like(old_jaw),where=old_jaw<1-1e-6)
+weights[:,other_bones] *= other_scale[:,None]
+weights[:,jaw_index] += jaw_target-old_jaw
+jaw_metadata = {
+    'joint':bone_names[jaw_index],
+    'affected_65536':int(np.count_nonzero(jaw_gain > .25)),
+    'core_65536':int(np.count_nonzero(jaw_gain > .9)),
+}
 face_mask = (positions[:,1] > 0.09) & (positions[:,2] > 0.13) & (np.abs(positions[:,0]) < 0.30)
 dark_detail = (color.min(axis=1) < 0.2) & (positions[:,2] > 0.1)
 importance = opacity * np.power(np.maximum(np.linalg.det(covariance),0),1/3)
 importance *= 1 + 0.4*face_mask + 0.55*head_mask + 0.4*neck_mask + 0.2*dark_detail
 indices50 = np.argsort(-importance)[:50000]
+jaw_metadata['affected_50000'] = int(np.count_nonzero(jaw_gain[indices50] > .25))
 joint_indices = np.argsort(-weights,axis=1)[:,:4]
 joint_weights = np.take_along_axis(weights,joint_indices,axis=1)
 joint_weights /= joint_weights.sum(1,keepdims=True)
@@ -153,7 +178,7 @@ for count,selected in [(65536,np.arange(65536)),(50000,indices50)]:
     (out/('skin-joints-'+str(count)+'.bin')).write_bytes(joint_indices[selected].astype('uint8').tobytes())
     (out/('skin-weights-'+str(count)+'.bin')).write_bytes(joint_weights[selected].astype('<f4').tobytes())
 (out/'mesh-faces.bin').write_bytes(faces.astype('<u4').tobytes())
-(out/'rig-binding.json').write_text(json.dumps({'bone_names':bone_names,'joints_type':'uint8','weights_type':'float32-le','influences_per_splat':4,'space':'Blender Z up world','to_three_matrix':[[1,0,0],[0,0,1],[0,-1,0]],'accessories':accessory_metadata},indent=2))
+(out/'rig-binding.json').write_text(json.dumps({'bone_names':bone_names,'joints_type':'uint8','weights_type':'float32-le','influences_per_splat':4,'space':'Blender Z up world','to_three_matrix':[[1,0,0],[0,0,1],[0,-1,0]],'accessories':accessory_metadata,'jaw':jaw_metadata},indent=2))
 rest_bones = np.array([rig.matrix_world @ b.matrix_local for b in rig.data.bones])
 rest_inverse = np.linalg.inv(rest_bones)
 
@@ -198,6 +223,7 @@ if args.publish:
         'selection':'Fixed rest-pose opacity times covariance volume to power one third, boosted for face, accessories, and dark detail',
         'alignment':{'linear':full_linear.tolist(),'translation':translation.tolist()},
         'accessories':accessory_metadata,
+        'jaw':jaw_metadata,
     }
     (published/(stem+'.json')).write_text(json.dumps(metadata,indent=2))
     print('PUBLISHED',str(published/(stem+'.json')),flush=True)
@@ -205,7 +231,7 @@ if args.publish:
 metrics = {
     'alignment':{'initial_yaw_deg':angle,'linear':full_linear.tolist(),'translation':translation.tolist(),'sample_chamfer_mse':score},
     'nearest_surface_distance':{str(q):float(np.quantile(nearest_distance,q)) for q in [0.5,0.9,0.95,0.99]},
-    'bones':bone_names,'accessories':accessory_metadata,'selection_50000':'One constant rest-pose subset ranked by opacity times covariance volume to power one third, boosted for face, accessories, and dark detail','poses':[]
+    'bones':bone_names,'accessories':accessory_metadata,'jaw':jaw_metadata,'selection_50000':'One constant rest-pose subset ranked by opacity times covariance volume to power one third, boosted for face, accessories, and dark detail','poses':[]
 }
 for clip,frame in [('rest',0),('idle',18),('walk',8),('walk',16),('walk',24),('spin',24)]:
     for track in rig.animation_data.nla_tracks:

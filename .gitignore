@@ -10,3 +10,4 @@ test-results/
 *.blend1
 __pycache__/
 *.pyc
+public/models/tricolor-research/

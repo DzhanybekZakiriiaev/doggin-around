@@ -6,6 +6,7 @@ import {
 } from "@sparkjsdev/spark"
 import * as THREE from "three"
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js"
+import { type FaceAppearance, loadFaceAppearance } from "./faceAppearance"
 import { loadRiggedAppearance } from "./riggedAppearance"
 import { sampleSurface, skinMatrix } from "./sampling"
 
@@ -25,6 +26,11 @@ export const DOG_ACTIONS = [
 
 export type DogAction = (typeof DOG_ACTIONS)[number]["name"]
 export type DogView = "splats" | "mesh" | "skeleton"
+export type DogAppearance = {
+  kind: "smal-pets-faces"
+  manifestUrl: string
+  density?: number
+}
 type Skin = {
   source: THREE.SkinnedMesh
   splats: SplatMesh
@@ -32,6 +38,8 @@ type Skin = {
 }
 
 export class Dog {
+  constructor(private readonly renderer?: THREE.WebGLRenderer) {}
+
   readonly group = new THREE.Group()
   action: DogAction = "idle"
   paused = false
@@ -49,8 +57,19 @@ export class Dog {
   private returnToIdle = false
   private currentActionRate = 1
   private loadVersion = 0
+  private rebuildVersion = 0
   private view: DogView = "splats"
   private capturedAppearance = false
+  private faceAppearance?: FaceAppearance
+  private faceTransition?: Float32Array
+  private appearance?: DogAppearance
+  private readonly mouthOffset = new THREE.Vector3(0, -0.02, -0.03)
+  private readonly onFinished = (event: {
+    action: THREE.AnimationAction
+  }): void => {
+    if (event.action === this.active && this.action !== "sit")
+      this.returnToIdle = true
+  }
 
   get availableActions(): DogAction[] {
     return DOG_ACTIONS.map(({ name }) => name).filter((name) =>
@@ -63,10 +82,79 @@ export class Dog {
   }
 
   get maxDensity(): number {
-    return this.capturedAppearance ? 50000 : 100000
+    return (
+      this.faceAppearance?.maxDensity ??
+      (this.capturedAppearance ? 50000 : 100000)
+    )
   }
 
-  async loadDog(assetUrl: string): Promise<void> {
+  get gaitCadence():
+    | {
+        walk: { cyclesPerSecond: number; travelSpeed: number }
+        run: { cyclesPerSecond: number; travelSpeed: number }
+      }
+    | undefined {
+    return this.faceAppearance?.gaitCadence
+  }
+
+  get hasFaceAppearance(): boolean {
+    return this.faceAppearance !== undefined
+  }
+
+  getMouthWorldPosition(target: THREE.Vector3): THREE.Vector3 {
+    this.group.updateWorldMatrix(true, true)
+    if (this.faceAppearance) {
+      return this.faceAppearance.getMouthPosition(target)
+    }
+    const mouth = this.group.getObjectByName("joint_20")
+    if (mouth) return mouth.localToWorld(target.copy(this.mouthOffset))
+    return this.group.localToWorld(target.set(0, 1.15, -0.72))
+  }
+
+  async loadDog(assetUrl: string, appearance?: DogAppearance): Promise<void> {
+    const version = ++this.loadVersion
+    const candidate = new Dog(this.renderer)
+    candidate.density = appearance?.density ?? this.density
+    candidate.view = this.view
+    try {
+      await candidate.prepareDog(assetUrl, appearance)
+      if (version !== this.loadVersion) {
+        candidate.dispose()
+        return
+      }
+      this.clear()
+      this.root = candidate.root
+      this.mixer = candidate.mixer
+      this.actions = candidate.actions
+      this.skins = candidate.skins
+      this.helpers = candidate.helpers
+      this.active = candidate.active
+      this.transition = candidate.transition
+      this.transitionTime = candidate.transitionTime
+      this.faceTransition = candidate.faceTransition
+      this.returnToIdle = candidate.returnToIdle
+      this.capturedAppearance = candidate.capturedAppearance
+      this.faceAppearance = candidate.faceAppearance
+      this.appearance = appearance
+      this.density = candidate.density
+      this.sampleCount = candidate.sampleCount
+      this.action = "idle"
+      if (this.root) this.group.add(this.root)
+      for (const helper of this.helpers) this.group.add(helper)
+      this.mixer?.removeEventListener("finished", candidate.onFinished)
+      this.mixer?.addEventListener("finished", this.onFinished)
+      this.setView(this.view)
+      this.update(0)
+    } catch (error) {
+      candidate.dispose()
+      throw error
+    }
+  }
+
+  private async prepareDog(
+    assetUrl: string,
+    appearance?: DogAppearance,
+  ): Promise<void> {
     const version = ++this.loadVersion
     const isDefaultAsset =
       new URL(assetUrl, window.location.href).pathname ===
@@ -104,8 +192,19 @@ export class Dog {
     }
     this.clear()
     this.capturedAppearance = capturedAppearance
-    this.density = Math.min(this.density, this.maxDensity)
+    this.appearance = appearance
     this.root = gltf.scene
+    if (appearance) {
+      this.faceAppearance = await loadFaceAppearance(
+        appearance.manifestUrl,
+        this.density,
+      )
+      if (this.renderer) this.faceAppearance.checkTextureSize(this.renderer)
+      for (const { name } of DOG_ACTIONS)
+        if (clips.has(name) && !this.faceAppearance.clips.has(name))
+          throw new Error(`Missing baked motion for ${name}`)
+    }
+    this.density = Math.min(this.density, this.maxDensity)
     this.group.add(this.root)
     const box = new THREE.Box3().setFromObject(this.root)
     const size = box.getSize(new THREE.Vector3())
@@ -119,10 +218,7 @@ export class Dog {
     )
     this.root.updateMatrixWorld(true)
     this.mixer = new THREE.AnimationMixer(this.root)
-    this.mixer.addEventListener("finished", (event) => {
-      if (event.action === this.active && this.action !== "sit")
-        this.returnToIdle = true
-    })
+    this.mixer.addEventListener("finished", this.onFinished)
     for (const { name, playback } of DOG_ACTIONS) {
       const clip = clips.get(name)
       if (!clip) continue
@@ -145,7 +241,19 @@ export class Dog {
       this.helpers.push(helper)
     }
     try {
-      await this.rebuildSplats()
+      if (this.faceAppearance) {
+        const source = sources[0]
+        for (const object of [
+          this.faceAppearance.mesh,
+          this.faceAppearance.splats,
+        ]) {
+          object.matrixAutoUpdate = false
+          object.matrix.copy(source.matrix)
+          source.parent?.add(object)
+        }
+        this.sampleCount = this.faceAppearance.splats.numSplats
+        this.setView(this.view)
+      } else await this.rebuildSplats()
       this.playAction("idle")
     } catch (error) {
       this.clear()
@@ -155,6 +263,44 @@ export class Dog {
 
   async rebuildSplats(density = this.density): Promise<void> {
     if (!this.root) return
+    const version = ++this.rebuildVersion
+    if (this.faceAppearance && this.appearance) {
+      const current = this.faceAppearance
+      const root = this.root
+      const modelVersion = this.loadVersion
+      const next = await loadFaceAppearance(
+        this.appearance.manifestUrl,
+        density,
+      )
+      try {
+        if (
+          version !== this.rebuildVersion ||
+          modelVersion !== this.loadVersion ||
+          root !== this.root ||
+          current !== this.faceAppearance
+        ) {
+          next.dispose()
+          return
+        }
+        if (this.renderer) next.checkTextureSize(this.renderer)
+        next.updatePositions(current.vertexPositions)
+        next.mesh.matrixAutoUpdate = false
+        next.mesh.matrix.copy(current.mesh.matrix)
+        next.splats.matrixAutoUpdate = false
+        next.splats.matrix.copy(current.splats.matrix)
+        current.mesh.parent?.add(next.mesh)
+        current.splats.parent?.add(next.splats)
+        current.dispose()
+        this.faceAppearance = next
+        this.density = Math.min(density, next.maxDensity)
+        this.sampleCount = next.splats.numSplats
+        this.setView(this.view)
+      } catch (error) {
+        next.dispose()
+        throw error
+      }
+      return
+    }
     this.density = density
     this.mixer?.stopAllAction()
     this.root.updateMatrixWorld(true)
@@ -269,6 +415,8 @@ export class Dog {
   playAction(name: DogAction): void {
     const next = this.actions.get(name)
     if (!next || !this.mixer || !this.root) return
+    if (this.faceAppearance && this.active)
+      this.faceTransition = this.faceAppearance.vertexPositions.slice()
     // Keep the displayed pose when a blend is interrupted.
     const tracks = new Map<string, THREE.KeyframeTrack>()
     if (this.active)
@@ -336,6 +484,13 @@ export class Dog {
           (view === "splats" && object.name.startsWith("SplatOverlay_"))
     })
     for (const skin of this.skins) skin.splats.visible = view === "splats"
+    if (this.faceAppearance) {
+      this.root?.traverse((object) => {
+        if (object instanceof THREE.SkinnedMesh) object.visible = false
+      })
+      this.faceAppearance.mesh.visible = view === "mesh"
+      this.faceAppearance.splats.visible = view === "splats"
+    }
     for (const helper of this.helpers) helper.visible = view === "skeleton"
   }
 
@@ -349,6 +504,18 @@ export class Dog {
       this.transition.setEffectiveWeight(1 - weight)
     }
     this.mixer?.update(step)
+    if (this.faceAppearance && this.active) {
+      const sample = this.faceAppearance.sample(this.action, this.active.time)
+      if (this.faceTransition) {
+        const progress = Math.min(this.transitionTime / 0.3, 1)
+        const weight = progress * progress * (3 - 2 * progress)
+        for (let index = 0; index < sample.length; index++)
+          sample[index] =
+            this.faceTransition[index] * (1 - weight) + sample[index] * weight
+        if (progress === 1) this.faceTransition = undefined
+      }
+      this.faceAppearance.updatePositions(sample)
+    }
     if (this.returnToIdle) this.playAction("idle")
     else if (this.transitionTime >= 0.3) this.releaseTransition()
     this.group.updateMatrixWorld(true)
@@ -399,6 +566,10 @@ export class Dog {
   }
 
   private clear(): void {
+    this.faceAppearance?.dispose()
+    this.faceAppearance = undefined
+    this.faceTransition = undefined
+    this.appearance = undefined
     for (const skin of this.skins) this.releaseSkin(skin)
     this.skins = []
     for (const helper of this.helpers) {

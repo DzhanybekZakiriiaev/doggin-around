@@ -13,6 +13,11 @@ test("the captured dog keeps body motion and continuous grounded gait loops", as
       dog.group.getObjectByName(name),
     )
     if (feet.some((foot) => !foot)) throw new Error("The paws are missing")
+    const wrists = ["joint_8", "joint_36"].map((name) =>
+      dog.group.getObjectByName(name),
+    )
+    if (wrists.some((wrist) => !wrist))
+      throw new Error("The front wrists are missing")
     const inspection = dog as unknown as {
       active: import("three").AnimationAction
     }
@@ -85,6 +90,7 @@ test("the captured dog keeps body motion and continuous grounded gait loops", as
       let largestStep = 0
       let largestStepJoint = ""
       let largestStepTime = 0
+      let maxFrontWristAngle = 0
       let lowestPaw = ""
       let lowestPawTime = 0
       const bodyReference = rig.quaternion.clone()
@@ -96,6 +102,13 @@ test("the captured dog keeps body motion and continuous grounded gait loops", as
           minimumPaw,
           ...feet.map(
             (foot) => (foot?.matrixWorld.elements[13] ?? Infinity) - pawPlane,
+          ),
+        )
+        maxFrontWristAngle = Math.max(
+          maxFrontWristAngle,
+          ...wrists.map(
+            (wrist) =>
+              2 * Math.acos(Math.min(1, Math.abs(wrist?.quaternion.w ?? 1))),
           ),
         )
         for (const foot of feet) {
@@ -130,6 +143,7 @@ test("the captured dog keeps body motion and continuous grounded gait loops", as
         largestStep,
         largestStepJoint,
         largestStepTime,
+        maxFrontWristAngle,
         lowestPaw,
         lowestPawTime,
         seamVelocityByJoint,
@@ -163,6 +177,10 @@ test("the captured dog keeps body motion and continuous grounded gait loops", as
       result.largestStep,
       `${result.name} joint discontinuity`,
     ).toBeLessThan(0.25)
+    expect(
+      result.maxFrontWristAngle,
+      `${result.name} front wrist bend`,
+    ).toBeLessThan(0.45)
   }
 })
 

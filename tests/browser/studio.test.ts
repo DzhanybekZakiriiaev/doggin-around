@@ -1,10 +1,17 @@
 import { expect, test } from "@playwright/test"
 import { PNG } from "pngjs"
-import type { Dog } from "../../src/dog"
+import type { Dog, DogAppearance } from "../../src/dog"
 
 declare global {
   interface Window {
-    dogSandbox: { dog: Dog; loadDog: (url: string) => Promise<void> }
+    dogSandbox: {
+      dog: Dog
+      loadDog: (
+        url: string,
+        name?: string,
+        appearance?: DogAppearance,
+      ) => Promise<boolean>
+    }
   }
 }
 

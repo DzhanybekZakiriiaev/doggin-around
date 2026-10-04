@@ -125,7 +125,8 @@ def secondary_motion(clip, t):
     for index, name in enumerate(profile.get("ears", [])):
         lag = 0.4 + index * 0.18
         wave = math.sin(t * math.tau * 2 - lag) + math.sin(lag)
-        pose(name, side, envelope * wave * (0.035 if clip == "jump" else 0.018))
+        amplitude = 0.055 if clip == "sniff" else 0.035 if clip == "jump" else 0.018
+        pose(name, side, envelope * wave * amplitude)
 
 
 def plant_contact(leg, strength=1.0, target_offset=None):
@@ -229,7 +230,7 @@ for clip, length in clips:
             bark = max(0.0, math.sin(t * math.tau * 3)) ** 2
             pose(profile["head"], side, -0.23 * bark)
             if profile.get("jaw"):
-                pose(profile["jaw"], side, 0.55 * bark)
+                pose(profile["jaw"], side, -0.55 * bark)
             move(profile["root"], forward * (-0.025 * bark))
             if profile.get("neck"):
                 pose(profile["neck"], side, -0.07 * bark)
@@ -254,9 +255,16 @@ for clip, length in clips:
                     pose(leg["upper"], side, -0.16 * bow)
             pose(profile["head"], side, -0.16 * bow)
         elif clip == "sniff":
-            pose(profile["head"], side, -0.25 + 0.05 * math.cos(t * math.tau * 2))
+            sniff = math.sin(t * math.tau * 2)
+            move(profile["root"], up * -0.10)
+            for name in profile["torso"][-2:]:
+                pose(name, side, -0.17)
+            pose(profile["head"], side, -0.48 + 0.05 * sniff)
             if profile.get("neck"):
-                pose(profile["neck"], side, -0.15 + 0.04 * math.sin(t * math.tau))
+                pose(profile["neck"], side, -0.82)
+                add_pose(profile["neck"], up, 0.06 * math.sin(t * math.tau))
+            if profile.get("jaw"):
+                pose(profile["jaw"], side, -0.28 - 0.07 * sniff)
         elif clip == "wag":
             pose(profile["head"], side, 0.04 * math.sin(t * math.tau))
         secondary_motion(clip, t)
@@ -269,7 +277,7 @@ for clip, length in clips:
             offset = pivot - root.bone.head_local
             displacement = offset - Quaternion(up, turn) @ offset
             move(profile["root"], displacement + up * bob)
-        if clip in {"sit", "playbow"}:
+        if clip in {"sit", "playbow", "sniff"}:
             for leg in profile["legs"]:
                 offset = forward * 0.14 * settle if clip == "sit" and leg["name"].startswith("back") else None
                 plant_contact(leg, target_offset=offset)
