@@ -1,0 +1,16 @@
+node_modules
+dist
+.git
+.claude
+.idea
+.vscode
+
+# Secrets stay out of the build context
+.env
+.env.*
+
+# Only needed to generate worlds and comic art, not to build the site
+docs
+worlds/plates
+worlds/scenes
+worlds/out/**/pano.png

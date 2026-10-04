@@ -1,5 +1,5 @@
 // Every world downloaded by `npm run worlds` (worlds/out/<scene>/<run>/world.json), newest first.
-// Dev-only: the files are served straight from the project folder by Vite.
+// In dev Vite serves the files straight from the project folder; a build copies them into dist/ (vite.config.ts).
 
 interface RunRecord {
   label?: string;

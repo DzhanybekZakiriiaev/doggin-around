@@ -1,0 +1,45 @@
+# nginx's image fills in ${PORT} from the environment at start-up (nginx's own $variables are left alone).
+server {
+    listen ${PORT};
+    server_name _;
+    root /usr/share/nginx/html;
+    absolute_redirect off;
+
+    gzip on;
+    gzip_types text/css application/javascript application/json image/svg+xml model/gltf-binary;
+
+    location = /healthz {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+
+    # Vite's bundles have content hashes in their names: cache them for good.
+    location /assets/ {
+        try_files $uri =404;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+
+    # The Marble worlds (splats and colliders): big and unhashed, so a day. A missing one is a 404, never the page.
+    location /worlds/ {
+        try_files $uri =404;
+        add_header Cache-Control "public, max-age=86400";
+    }
+
+    location ~* \.glb$ {
+        types { model/gltf-binary glb; }
+        try_files $uri =404;
+        add_header Cache-Control "public, max-age=86400";
+    }
+
+    location ~* \.wasm$ {
+        types { application/wasm wasm; }
+        try_files $uri =404;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-cache";
+    }
+}
