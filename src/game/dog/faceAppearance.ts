@@ -448,9 +448,11 @@ export class FaceAppearance {
       return
     this.deformation.updatePositions(positions)
     if (positions !== this.vertexPositions) this.vertexPositions.set(positions)
-    this.mesh.geometry.getAttribute("position").needsUpdate = true
-    this.mesh.geometry.computeVertexNormals()
-    this.mesh.geometry.computeBoundingSphere()
+    if (this.mesh.visible) {
+      this.mesh.geometry.getAttribute("position").needsUpdate = true
+      this.mesh.geometry.computeVertexNormals()
+      this.mesh.geometry.computeBoundingSphere()
+    }
     const texture = this.textures[2]
     const textureData = texture.image.data as Float32Array
     textureData.set(this.deformation.data)

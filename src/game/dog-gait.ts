@@ -66,12 +66,19 @@ export class DogGait {
   private trot = 0;
   private stepping = 0;
 
+  private readonly skeletonRoot: THREE.Object3D
+  private readonly frame: THREE.Object3D
+  private readonly groundAt: (x: number, z: number, near: number) => number | undefined
+
   constructor(
     rig: RigSpec,
-    private readonly skeletonRoot: THREE.Object3D, // the Dog's group (scaled model space)
-    private readonly frame: THREE.Object3D, // Biscuit's group: metres, ground at y = 0, facing -Z
-    private readonly groundAt: (x: number, z: number, near: number) => number | undefined,
+    skeletonRoot: THREE.Object3D, // the Dog's group (scaled model space)
+    frame: THREE.Object3D, // Biscuit's group: metres, ground at y = 0, facing -Z
+    groundAt: (x: number, z: number, near: number) => number | undefined,
   ) {
+    this.skeletonRoot = skeletonRoot
+    this.frame = frame
+    this.groundAt = groundAt
     let mesh: THREE.SkinnedMesh | undefined;
     skeletonRoot.traverse((object) => {
       if (object instanceof THREE.SkinnedMesh && !mesh) mesh = object;
@@ -185,18 +192,9 @@ export class DogGait {
 
   private solve(leg: Leg, gait: typeof WALK, stride: number) {
     const t = (this.phase + THREE.MathUtils.lerp(leg.phase.walk, leg.phase.trot, this.trot)) % 1;
-    let along: number; // -0.5 (reaching forward) … +0.5 (pushed back)
-    let lift = 0;
-    let curl = 0;
-    if (t < gait.duty) {
-      along = t / gait.duty - 0.5;
-    } else {
-      const s = (t - gait.duty) / (1 - gait.duty);
-      along = 0.5 - s * s * (3 - 2 * s);
-      lift = Math.sin(Math.PI * s);
-      curl = lift;
-    }
-    lift *= gait.lift * this.stepping;
+    const { along, lift: swingLift } = pawCycle(t, gait.duty)
+    const lift = swingLift * gait.lift * this.stepping
+    const curl = swingLift
 
     // Paw target in the frame, then in the world. (Forward is -Z, so "pushed back" is +Z.)
     const contact = v1.copy(leg.restContact);
@@ -221,10 +219,16 @@ export class DogGait {
       const pastern = footTarget.clone().sub(toe);
       const roll = new THREE.Quaternion().setFromUnitVectors(pastern.clone().normalize(), hip.clone().sub(toe).normalize());
       const partial = new THREE.Quaternion();
-      for (let t = 0.1; t < 1.05; t += 0.1) {
-        footTarget.copy(pastern).applyQuaternion(partial.identity().slerp(roll, t)).add(toe);
-        if (footTarget.distanceTo(hip) <= reachable) break;
+      // Find the smallest heel roll that reaches without snapping between fixed angles.
+      let low = 0
+      let high = 1
+      for (let iteration = 0; iteration < 12; iteration++) {
+        const fraction = (low + high) / 2
+        footTarget.copy(pastern).applyQuaternion(partial.identity().slerp(roll, fraction)).add(toe)
+        if (footTarget.distanceTo(hip) > reachable) low = fraction
+        else high = fraction
       }
+      footTarget.copy(pastern).applyQuaternion(partial.identity().slerp(roll, high)).add(toe)
     }
 
     // Two-bone IK: upper → lower → foot reaching footTarget, knee bent towards the rest bend direction.
@@ -281,4 +285,17 @@ function aim(bone: THREE.Object3D, toward: THREE.Object3D, direction: THREE.Vect
   const parent = bone.parent ? bone.parent.getWorldQuaternion(q2) : q2.identity();
   bone.quaternion.copy(parent.invert().multiply(swing.copy(turn).multiply(world)));
   bone.updateMatrixWorld(true);
+}
+
+/** Keeps paw velocity continuous through lift-off, touchdown and the loop boundary. */
+export function pawCycle(phase: number, duty: number) {
+  const t = ((phase % 1) + 1) % 1
+  if (t < duty) return { along: t / duty - 0.5, lift: 0 }
+  const swingTime = (t - duty) / (1 - duty)
+  const endpointSpeed = (1 - duty) / duty
+  const ease = swingTime ** 3 * (10 + swingTime * (-15 + 6 * swingTime))
+  return {
+    along: 0.5 + endpointSpeed * swingTime - (1 + endpointSpeed) * ease,
+    lift: Math.sin(Math.PI * swingTime) ** 2,
+  }
 }
