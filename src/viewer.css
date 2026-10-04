@@ -1,0 +1,79 @@
+/* The dev viewer page (viewer.html): full-window canvas and the HUD. In-game overlays: game/game.css. */
+
+:root {
+  color-scheme: dark;
+  --panel: rgb(16 18 24 / 78%);
+  --text: #eef0f4;
+  --muted: #a4abb8;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #1b2028;
+  color: var(--text);
+  font: 13px/1.4 system-ui, sans-serif;
+}
+
+#scene {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+}
+
+#hud {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  max-width: calc(100vw - 120px);
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+#hud select {
+  max-width: 280px;
+  margin-left: 4px;
+  font: inherit;
+}
+
+#status {
+  color: var(--muted);
+}
+
+#fps {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--panel);
+  font-variant-numeric: tabular-nums;
+}
+
+#hud input[type='range'] {
+  width: 90px;
+  vertical-align: middle;
+}
+
+
+/* The game layer is fixed at z-index 300; the viewer's HUD and overlays sit above it. */
+body #hud,
+body #fps,
+body #crosshair,
+body #prompt,
+body #hint,
+body #transition,
+body #start {
+  z-index: 400;
+}

@@ -6,9 +6,13 @@ One playable panel, one dog action, one visible change to the comic.
 
 | Panel | Bad ending (shown first) | Good ending (after you play) |
 |---|---|---|
-| 1. Dusk, the yard | Mika is locked out in the rain. The spare key is gone, and Biscuit sits by a fresh muddy hole looking guilty. *(the playable panel; the same in both)* | same |
-| 2. Night | An hour on her knees in the mud, searching alone. No key. | "Biscuit, dig!" He digs it up. "Good boy!" |
-| 3. Midnight | CRACK! Thunder. Biscuit bolts into the storm. **THE END?** | Inside by the fire, warm and dry, asleep together. **THE END** |
+| 1. Dusk, the yard | Locked out as the storm comes in; Biscuit sits by a fresh muddy hole looking guilty. *(the playable panel; the same in both)* | same |
+| 2 | Hours on her knees in the rain, searching by flashlight. No key. | "Biscuit, dig!" He digs the key up. |
+| 3 | KRA-KOOM! Biscuit bolts into the storm. | CLICK! The key turns; he darts in past her into the firelight. |
+| 4 | She searches the woods all night, calling for him. | Home, dry and warm: asleep together by the fire. |
+| 5 | Dawn: lost-dog posters, just his bandana. **THE END?** | Next morning, the key gets its own hook. **THE END** |
+
+The lettered pages are `public/comic/storm-night-bad-ending.png` (the one to upload) and `storm-night-good-ending.png`.
 
 Cause and effect in one line: **Biscuit buried the key; Biscuit digging it up gets them inside before the storm.**
 

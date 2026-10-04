@@ -1,63 +1,4 @@
-:root {
-  color-scheme: dark;
-  --panel: rgb(16 18 24 / 78%);
-  --text: #eef0f4;
-  --muted: #a4abb8;
-}
-
-* {
-  box-sizing: border-box;
-}
-
-html,
-body {
-  margin: 0;
-  height: 100%;
-  overflow: hidden;
-  background: #1b2028;
-  color: var(--text);
-  font: 13px/1.4 system-ui, sans-serif;
-}
-
-#scene {
-  display: block;
-  width: 100vw;
-  height: 100vh;
-}
-
-#hud {
-  position: fixed;
-  top: 12px;
-  left: 12px;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 14px;
-  max-width: calc(100vw - 120px);
-  padding: 8px 12px;
-  border-radius: 8px;
-  background: var(--panel);
-}
-
-#hud select {
-  max-width: 280px;
-  margin-left: 4px;
-  font: inherit;
-}
-
-#status {
-  color: var(--muted);
-}
-
-#fps {
-  position: fixed;
-  top: 12px;
-  right: 12px;
-  padding: 4px 8px;
-  border-radius: 6px;
-  background: var(--panel);
-  font-variant-numeric: tabular-nums;
-}
+/* ---------- In-game overlays ---------- */
 
 #start {
   position: fixed;
@@ -72,11 +13,12 @@ body {
 
 #start p {
   margin: 0;
-  color: var(--muted);
+  color: #a4abb8;
+  font: 13px/1.4 system-ui, sans-serif;
 }
 
 #start .title {
-  color: var(--text);
+  color: #eef0f4;
   font-size: 22px;
   font-weight: 600;
 }
@@ -85,18 +27,11 @@ body {
   display: none;
 }
 
-/* ---------- In-game overlays ---------- */
-
 :root {
-  --ink: #140c12;
-  --sfx-yellow: #ffd23f;
-  --sfx-red: #e2383f;
-  --comic-font: 'Bangers', Impact, 'Arial Black', sans-serif;
-}
-
-#hud input[type='range'] {
-  width: 90px;
-  vertical-align: middle;
+  --game-ink: #140c12;
+  --game-sfx-yellow: #ffd23f;
+  --game-sfx-red: #e2383f;
+  --game-comic-font: 'Bangers', Impact, 'Arial Black', sans-serif;
 }
 
 #crosshair {
@@ -108,7 +43,7 @@ body {
   margin: -3px 0 0 -3px;
   border-radius: 50%;
   background: rgb(255 255 255 / 80%);
-  box-shadow: 0 0 0 1.5px var(--ink);
+  box-shadow: 0 0 0 1.5px var(--game-ink);
   pointer-events: none;
 }
 
@@ -120,9 +55,9 @@ body {
   opacity: 0;
   transition: opacity 0.15s, transform 0.15s;
   color: #fff;
-  font: 28px/1 var(--comic-font);
+  font: 28px/1 var(--game-comic-font);
   letter-spacing: 1px;
-  text-shadow: 2px 2px 0 var(--ink);
+  text-shadow: 2px 2px 0 var(--game-ink);
   pointer-events: none;
 }
 
@@ -136,11 +71,11 @@ body {
   min-width: 1.3em;
   margin-right: 0.3em;
   padding: 2px 0.3em 0;
-  border: 2px solid var(--ink);
+  border: 2px solid var(--game-ink);
   border-radius: 4px;
-  background: var(--sfx-yellow);
-  box-shadow: 2px 2px 0 var(--ink);
-  color: var(--ink);
+  background: var(--game-sfx-yellow);
+  box-shadow: 2px 2px 0 var(--game-ink);
+  color: var(--game-ink);
   font: inherit;
   text-align: center;
   text-shadow: none;
@@ -166,7 +101,7 @@ body {
   --iris: 150%;
   background:
     radial-gradient(circle, rgb(255 236 200 / 10%) 25%, transparent 28%) 0 0 / 9px 9px,
-    var(--ink);
+    var(--game-ink);
   -webkit-mask-image: radial-gradient(circle at 50% 50%, transparent var(--iris), #000 calc(var(--iris) + 0.5%));
   mask-image: radial-gradient(circle at 50% 50%, transparent var(--iris), #000 calc(var(--iris) + 0.5%));
   transition: --iris var(--wipe-seconds, 0.55s) cubic-bezier(0.7, 0, 0.3, 1);
@@ -185,11 +120,11 @@ body {
   left: 50%;
   top: 40%;
   transform: translate(-50%, -50%) rotate(-8deg) scale(0);
-  color: var(--sfx-yellow);
-  font: clamp(48px, 10vw, 128px) / 1 var(--comic-font);
+  color: var(--game-sfx-yellow);
+  font: clamp(48px, 10vw, 128px) / 1 var(--game-comic-font);
   letter-spacing: 3px;
-  -webkit-text-stroke: 3px var(--ink);
-  text-shadow: 6px 6px 0 var(--sfx-red);
+  -webkit-text-stroke: 3px var(--game-ink);
+  text-shadow: 6px 6px 0 var(--game-sfx-red);
   transition: transform 0.25s cubic-bezier(0.3, 1.6, 0.5, 1);
 }
 
@@ -203,9 +138,62 @@ body {
   bottom: 9%;
   transform: translateX(-50%);
   color: rgb(255 255 255 / 85%);
-  font: 18px/1 var(--comic-font);
+  font: 18px/1 var(--game-comic-font);
   letter-spacing: 1px;
-  text-shadow: 2px 2px 0 var(--ink);
+  text-shadow: 2px 2px 0 var(--game-ink);
   white-space: nowrap;
   pointer-events: none;
+}
+
+/* ---------- The game layer (canvas + overlays) ---------- */
+
+.game-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+}
+
+.game-layer .game-canvas {
+  position: fixed;
+  inset: 0;
+  display: block;
+  width: 100vw;
+  height: 100vh;
+}
+
+/* Menu: only Biscuit, drawn over the page's companion box; the page stays usable around and under him. */
+.game-layer--showcase {
+  z-index: 30;
+  pointer-events: none;
+}
+
+.game-layer--showcase .game-canvas {
+  inset: auto;
+}
+
+.game-layer--showcase .game-ui {
+  display: none;
+}
+
+.game-objective {
+  position: fixed;
+  top: 18px;
+  left: 22px;
+  max-width: min(420px, calc(100vw - 44px));
+  padding: 8px 14px 7px;
+  border: 3px solid var(--game-ink);
+  background: #fff9e9;
+  color: var(--game-ink);
+  font: 18px/1.15 var(--game-comic-font);
+  letter-spacing: 0.04em;
+  box-shadow: 4px 4px 0 var(--game-ink);
+  transform: rotate(-1deg);
+}
+
+.game-objective:empty {
+  display: none;
+}
+
+.game-layer--hidden {
+  display: none;
 }

@@ -89,6 +89,11 @@ export class AdaptiveQuality {
     this.apply();
   }
 
+  /** Re-applies the current tier at the window's size (after something else sized the canvas). */
+  resize() {
+    this.apply();
+  }
+
   private apply() {
     const { pixelRatio, splats, maxStdDev } = TIERS[this.tier];
     this.renderer.setPixelRatio(Math.min(pixelRatio, window.devicePixelRatio));

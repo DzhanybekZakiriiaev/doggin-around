@@ -24,11 +24,11 @@ export interface WorldRun {
   metricScale?: number;
 }
 
-const records = import.meta.glob<RunRecord>('../worlds/out/*/*/world.json', { eager: true, import: 'default' });
+const records = import.meta.glob<RunRecord>('../../worlds/out/*/*/world.json', { eager: true, import: 'default' });
 
 export const worldRuns: WorldRun[] = Object.entries(records)
   .map(([file, record]) => {
-    const [, , , scene, run] = file.split('/');
+    const [, scene, run] = file.match(/worlds\/out\/([^/]+)\/([^/]+)\/world\.json$/)!;
     const model = record.world.model?.replace('marble-', '') ?? 'world';
     const when = run.slice(5, 16).replace('T', ' ').replace('-', ':'); // "MM-DD HH:MM" from the folder timestamp
     const metricScale = record.world.assets?.splats?.semantics_metadata?.metric_scale_factor ?? undefined;

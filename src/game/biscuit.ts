@@ -29,12 +29,14 @@ const PLANTED: DogAction[] = ['idle', 'wag', 'sniff', 'bark', 'walk', 'run'];
 
 const UP = new THREE.Vector3(0, 1, 0);
 /** His splats are lit as captured (bright daylight); this tints them to sit in each world's light. */
-const MOOD_TINT: Record<Mood, THREE.Color> = {
+const MOOD_TINT: Record<Mood | 'studio', THREE.Color> = {
   dusk: new THREE.Color(0.8, 0.83, 0.93),
   indoor: new THREE.Color(1.0, 0.87, 0.74),
+  studio: new THREE.Color(1, 1, 1), // the menu: as captured
 };
+const DIG_SECONDS = 3.2;
 
-type Mode = 'follow' | 'chase' | 'pickup' | 'return' | 'petted';
+type Mode = 'follow' | 'chase' | 'pickup' | 'return' | 'petted' | 'dig' | 'stage';
 
 export class Biscuit {
   readonly group = new THREE.Group();
@@ -102,7 +104,7 @@ export class Biscuit {
     return this.mode === 'petted' && this.petArrived;
   }
 
-  setMood(mood: Mood) {
+  setMood(mood: Mood | 'studio') {
     this.tint = MOOD_TINT[mood];
     this.applyTint();
   }
@@ -117,6 +119,8 @@ export class Biscuit {
 
   /** Puts him next to the player (on arrival in a world), facing them. */
   placeBeside(feet: THREE.Vector3, playerYaw: number) {
+    this.dug?.();
+    this.dug = undefined;
     const forward = new THREE.Vector3(-Math.sin(playerYaw), 0, -Math.cos(playerYaw));
     const right = new THREE.Vector3(-forward.z, 0, forward.x);
     this.group.position.copy(feet).addScaledVector(forward, 1.3).addScaledVector(right, 0.5);
@@ -132,6 +136,86 @@ export class Biscuit {
     this.placed = true;
     this.group.visible = this.loaded;
   }
+
+  /**
+   * The menu's companion: standing at the origin on nothing (no world), turned by `heading`, idling and now
+   * and then wagging. `update` keeps him there until he's placed in a world again.
+   */
+  stage(heading: number) {
+    this.dropFetch();
+    this.mode = 'stage';
+    this.group.position.set(0, 0, 0);
+    this.group.rotation.y = heading;
+    this.lastPosition.copy(this.group.position);
+    this.lastHeading = heading;
+    this.idleTime = 0;
+    this.placed = true;
+    this.group.visible = this.loaded;
+    this.play('idle');
+  }
+
+  /** Turns him on the menu stand (drag to spin). */
+  spin(radians: number) {
+    if (this.mode !== 'stage') return;
+    this.group.rotation.y += radians;
+    this.lastHeading = this.group.rotation.y;
+  }
+
+  /** A happy reaction (the menu's "tap to pet"). */
+  wag() {
+    if (!this.loaded) return;
+    this.idleTime = 0;
+    this.dog.playAction('wag');
+    this.wagTime = 0;
+  }
+
+  /** The jump clip (crouch, take-off at ~0.57 s, airborne until ~1.95 s at rate 1), at `rate`. */
+  jump(rate = 1) {
+    if (!this.loaded) return;
+    this.dog.setActionRate(rate);
+    this.dog.playAction('jump');
+  }
+
+  /** Sits down (and stays sat). */
+  sit() {
+    if (!this.loaded) return;
+    this.dog.setActionRate(1);
+    this.dog.playAction('sit');
+  }
+
+  /** Runs over to `spot` and digs there (pawing at the soil); resolves once he's done. */
+  dig(spot: THREE.Vector3): Promise<void> {
+    if (!this.loaded) return Promise.resolve();
+    this.dropFetch(true);
+    this.mode = 'dig';
+    this.digSpot.copy(spot);
+    this.timer = -1; // counting starts when he gets there
+    return new Promise((resolve) => (this.dug = resolve));
+  }
+
+  /** True while he's pawing at the ground (for the dirt effect). */
+  get digging() {
+    return this.mode === 'dig' && this.timer >= 0;
+  }
+
+  private readonly digSpot = new THREE.Vector3();
+  private dug?: () => void;
+
+  /** Sits at `at` facing `player`, and stays put until they come or go, or a few seconds pass. */
+  sitAt(at: THREE.Vector3, player: THREE.Vector3) {
+    this.group.position.copy(at);
+    this.snapToGround(true);
+    this.group.rotation.y = this.headingTo(player);
+    this.lastPosition.copy(this.group.position);
+    this.lastHeading = this.group.rotation.y;
+    this.mode = 'follow';
+    this.waitTime = 5;
+    this.waitFrom.copy(player);
+    this.play('sit');
+  }
+
+  private waitTime = 0;
+  private readonly waitFrom = new THREE.Vector3();
 
   /** Throws are fetched: he runs to it, picks it up and brings it back. */
   fetch(prop: Prop) {
@@ -183,6 +267,47 @@ export class Biscuit {
     this.moving = false;
 
     switch (this.mode) {
+      case 'stage':
+        // Idle, with a wag now and then; sitting after a long wait looks like he's bored of the menu.
+        this.idleTime += dt;
+        if (this.dog.action === 'idle' && this.idleTime > 7) {
+          this.wag();
+        } else if (this.dog.action === 'wag' && (this.wagTime += dt) > 2.5) {
+          this.play('idle');
+          this.idleTime = 0;
+        }
+        this.lastPosition.copy(this.group.position);
+        if (this.gait) {
+          this.gait.speed = 0;
+          this.gait.turnRate = 0;
+          this.gait.active = PLANTED.includes(this.dog.action);
+        }
+        this.dog.update(dt);
+        this.back.copy(this.group.position).y += 0.35;
+        return;
+      case 'dig':
+        if (this.timer < 0) {
+          // Front paws over the spot: stop a little short of it, then face it.
+          if (this.moveToward(this.digSpot, this.gaitFor(this.flatDistance(this.digSpot)), dt, 0.3)) {
+            this.faceToward(this.digSpot, dt);
+            if (Math.abs(this.headingError(this.headingTo(this.digSpot))) < 0.2) {
+              this.timer = 0;
+              this.dog.playAction('paw');
+            }
+          }
+        } else {
+          this.timer += dt;
+          // The paw clip is one scrape; keep scraping until done.
+          if (this.dog.action !== 'paw' && this.timer < DIG_SECONDS - 0.6) this.dog.playAction('paw');
+          if (this.timer >= DIG_SECONDS) {
+            this.mode = 'follow';
+            this.play('wag');
+            this.idleTime = 0;
+            this.dug?.();
+            this.dug = undefined;
+          }
+        }
+        break;
       case 'follow':
         this.follow(dt, player);
         break;
@@ -265,6 +390,13 @@ export class Biscuit {
 
   private follow(dt: number, player: THREE.Vector3) {
     const distance = this.flatDistance(player);
+    if (this.waitTime > 0) {
+      // Still sitting where he was found: up once the player moves off or the moment passes.
+      this.waitTime -= dt;
+      const moved = Math.hypot(player.x - this.waitFrom.x, player.z - this.waitFrom.z);
+      if (moved < 0.6 && this.waitTime > 0) return;
+      this.waitTime = 0;
+    }
     const wasMoving = this.isWalking();
     if (distance > START_FOLLOWING || (distance > FOLLOW_DISTANCE + ARRIVED && wasMoving)) {
       this.idleTime = 0;
@@ -323,6 +455,10 @@ export class Biscuit {
     const error = this.headingError(heading);
     const turned = this.group.rotation.y + Math.sign(error) * Math.min(Math.abs(error), TURN_RATE * dt);
     this.group.rotation.y = Math.atan2(Math.sin(turned), Math.cos(turned));
+  }
+
+  private headingTo(target: THREE.Vector3) {
+    return Math.atan2(-(target.x - this.group.position.x), -(target.z - this.group.position.z));
   }
 
   private headingError(heading: number) {

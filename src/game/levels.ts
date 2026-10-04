@@ -26,6 +26,8 @@ export interface DoorPlacement {
   };
   to: LevelId;
   prompt: string;
+  /** Locked until the Storm Night quest's key opens it (when the quest is on). */
+  locked?: boolean;
   /** Comic lettering over the transition. */
   sfx: string;
 }
@@ -39,6 +41,10 @@ export interface PropPlacement {
 export interface Placements {
   doors: DoorPlacement[];
   props?: PropPlacement[];
+  /** Storm Night: where Biscuit digs up the spare key (the soft, freshly dug soil in the yard). */
+  digSpot?: [number, number, number];
+  /** Storm Night: where he sits when the game starts (as comic panel 1 draws him). */
+  biscuitStart?: [number, number, number];
 }
 
 export const PLACEMENTS: Record<string, Placements> = {
@@ -46,8 +52,9 @@ export const PLACEMENTS: Record<string, Placements> = {
   'yard-single/2026-10-04T02-05-08_standard_77b1c400': {
     props: [
       { kind: 'stick', at: [0.7, 0.5, -2.4] },
-      { kind: 'key', at: [-0.6, 0.5, -2.0] },
     ],
+    digSpot: [1.69, -0.08, -4.76], // the freshly dug hole right of the porch steps
+    biscuitStart: [0.95, 0, -4.1], // sitting by the hole, clear of the hands at the bottom of the view
     doors: [
       {
         id: 'front-door',
@@ -58,6 +65,7 @@ export const PLACEMENTS: Record<string, Placements> = {
         door: { painted: true, hinge: 'left', opens: 'push' },
         to: 'cabin',
         prompt: 'Open the door',
+        locked: true,
         sfx: 'CREEAK!',
       },
     ],
@@ -66,7 +74,6 @@ export const PLACEMENTS: Record<string, Placements> = {
   'yard-single/2026-10-04T02-05-53_standard_a985bc88': {
     props: [
       { kind: 'stick', at: [0.7, 0.5, -2.4] },
-      { kind: 'key', at: [-0.6, 0.5, -2.0] },
     ],
     doors: [
       {
@@ -78,6 +85,7 @@ export const PLACEMENTS: Record<string, Placements> = {
         door: { painted: true, hinge: 'left', opens: 'push' },
         to: 'cabin',
         prompt: 'Open the door',
+        locked: true,
         sfx: 'CREEAK!',
       },
     ],

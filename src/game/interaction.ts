@@ -5,7 +5,8 @@ export interface Interactable {
   target: THREE.Vector3;
   /** Maximum distance from the camera to the target, in metres. */
   range: number;
-  prompt: string;
+  /** What "E" does; a function when it changes with the situation (e.g. a locked door). */
+  prompt: string | (() => string);
   /** Checked every frame; when it returns false the item can't be used right now. */
   enabled?: () => boolean;
   act(): Promise<void> | void;
@@ -53,11 +54,15 @@ export class Interactions {
     this.show(best);
   }
 
+  private shown = '';
+
   private show(item: Interactable | undefined) {
-    if (item === this.current) return;
+    const text = item ? (typeof item.prompt === 'function' ? item.prompt() : item.prompt) : '';
+    if (item === this.current && text === this.shown) return;
     this.current = item;
+    this.shown = text;
     this.promptEl.classList.toggle('visible', !!item);
-    if (item) this.promptEl.innerHTML = `<kbd>E</kbd> ${item.prompt}`;
+    if (item) this.promptEl.innerHTML = `<kbd>E</kbd> ${text}`;
   }
 
   private async activate() {

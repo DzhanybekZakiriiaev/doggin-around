@@ -8,7 +8,7 @@
 //
 // The authored clips skate (planted paws move at different speeds), leave paws in the ground or floating,
 // lift three legs at once and bob the body ~7 cm. This poses every frame with the same IK gait the game uses
-// (src/dog-gait.ts): a four-beat walk and a trot, each paw planted on flat ground, legs solved with two-bone
+// (src/game/dog-gait.ts): a four-beat walk and a trot, each paw planted on flat ground, legs solved with two-bone
 // IK. Body, head and tail keep a toned-down share of the authored motion. The clips keep the speed contract
 // Larry's fetch demo uses (CONTACT_GAIT_SPEED: walk 2.25, run 4.7 Dog units/s at action rate 1), so they drop
 // in. Only the walk and run animations change; meshes, skin, texture and the other clips are copied as is.
@@ -20,7 +20,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { DogGait, gaitCycle } from '../src/dog-gait.ts';
+import { DogGait, gaitCycle } from '../src/game/dog-gait.ts';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MODEL = path.join(root, 'public/models/dog-animated.glb');
