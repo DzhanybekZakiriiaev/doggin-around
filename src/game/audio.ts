@@ -17,9 +17,9 @@ function open() {
   return context;
 }
 
-/** Where every sound goes: one gain before the speakers, so the menu's volume control covers them all. */
+/** One gain before the speakers, so the menu's volume control covers every sound. */
 let master: GainNode | undefined;
-export function audioOutput() {
+function speakers() {
   if (!master) {
     master = audioContext().createGain();
     master.connect(audioContext().destination);
@@ -27,9 +27,62 @@ export function audioOutput() {
   return master;
 }
 
+/** Where every sound goes, on its way to the speakers; `solo` turns it all down for one sound. */
+let bus: GainNode | undefined;
+export function audioOutput() {
+  if (!bus) {
+    bus = audioContext().createGain();
+    bus.connect(speakers());
+  }
+  return bus;
+}
+
+/** Past `audioOutput`, for the one sound a solo lets through (still under the volume control). */
+export function soloOutput() {
+  return speakers();
+}
+
 /** The menu's volume, 0 (muted) up; 1 is as recorded. */
 export function setMasterVolume(level: number) {
-  audioOutput().gain.value = Math.max(0, level);
+  speakers().gain.value = Math.max(0, level);
+}
+
+// ---------- Solo ----------
+
+const SOLO_FADE_OUT = 0.15; // seconds: the rest drop away as the solo starts...
+const SOLO_FADE_IN = 0.6; // ...and come back in after it
+let soloTimer: ReturnType<typeof setTimeout> | undefined;
+const soloListeners = new Set<(soloing: boolean) => void>();
+
+/** True while a solo has every other sound off. */
+export const soloing = () => soloTimer !== undefined;
+
+/**
+ * Silences every other sound for `seconds` (Gangnam style's music), then brings them back. What plays
+ * through `audioOutput` fades out with it; sounds played outside it (the menu's theme, the dog's bark, the
+ * buttons' clicks) follow `onSolo` or check `soloing`. The timer ends it even if nothing calls `endSolo`.
+ */
+export function solo(seconds: number) {
+  clearTimeout(soloTimer);
+  const starting = !soloing();
+  soloTimer = setTimeout(endSolo, seconds * 1000);
+  ramp(audioOutput().gain, 0, SOLO_FADE_OUT);
+  if (starting) soloListeners.forEach((listener) => listener(true));
+}
+
+/** Ends a solo early (the dance cut short); every other sound comes back in. */
+export function endSolo() {
+  if (!soloing()) return;
+  clearTimeout(soloTimer);
+  soloTimer = undefined;
+  ramp(audioOutput().gain, 1, SOLO_FADE_IN);
+  soloListeners.forEach((listener) => listener(false));
+}
+
+/** Called with true as a solo starts and false as it ends. Returns the unsubscribe. */
+export function onSolo(listener: (soloing: boolean) => void) {
+  soloListeners.add(listener);
+  return () => void soloListeners.delete(listener);
 }
 
 /** Fetches a clip and decodes it to samples. */
@@ -220,11 +273,11 @@ export class OneShot {
   /** What's playing, each through its own gain so `stop` can fade it out. */
   private readonly playing = new Map<AudioBufferSourceNode, GainNode>();
 
-  constructor(url: string, volume = 1) {
+  constructor(url: string, volume = 1, output: AudioNode = audioOutput()) {
     const ctx = audioContext();
     this.gain = ctx.createGain();
     this.gain.gain.value = volume;
-    this.gain.connect(audioOutput());
+    this.gain.connect(output);
     this.ready = decode(url).then((clip) => void (this.clip = clip));
   }
 
@@ -241,10 +294,13 @@ export class OneShot {
     return this.clip?.duration ?? 0;
   }
 
-  /** Plays it from the top. Overlapping calls layer rather than cut one another off. */
+  /**
+   * Plays it from the top. Overlapping calls layer rather than cut one another off. False when it couldn't
+   * play (not loaded yet, or no user gesture has let the page's audio start).
+   */
   play() {
     const ctx = audioContext();
-    if (!this.clip || ctx.state !== 'running') return;
+    if (!this.clip || ctx.state !== 'running') return false;
     const source = ctx.createBufferSource();
     const level = ctx.createGain();
     source.buffer = this.clip;
@@ -252,6 +308,7 @@ export class OneShot {
     source.onended = () => this.playing.delete(source);
     this.playing.set(source, level);
     source.start();
+    return true;
   }
 
   /** Cuts off whatever of it is still playing, with a short fade rather than a click. */

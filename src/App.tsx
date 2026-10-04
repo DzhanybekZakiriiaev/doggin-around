@@ -11,7 +11,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { audioContext, setMasterVolume } from "./game/audio";
+import { audioContext, onSolo, setMasterVolume, soloing } from "./game/audio";
 import { Game } from "./game/game";
 import { Pipeline } from "./Pipeline";
 import { WORLD_PIPELINE_IMAGES, WORLD_PIPELINE_MS, WorldPipeline } from "./WorldPipeline";
@@ -379,6 +379,8 @@ function themeAudio() {
     theme = new Audio(MUSIC_SRC);
     theme.loop = true;
     theme.preload = "auto";
+    const audio = theme;
+    onSolo((soloing) => void (audio.muted = soloing)); // quiet under Gangnam style, carrying on underneath
   }
   return theme;
 }
@@ -442,7 +444,7 @@ function useUiSounds(volume: number) {
 
     const play = (name: keyof typeof UI_SOUNDS) => {
       const buffer = buffers[name];
-      if (!buffer || volumeRef.current === 0) return;
+      if (!buffer || volumeRef.current === 0 || soloing()) return;
       if (context.state === "suspended") void context.resume();
       const gain = context.createGain();
       gain.gain.value = Math.min(2, (UI_SOUNDS[name].gain * volumeRef.current) / DEFAULT_VOLUME);
