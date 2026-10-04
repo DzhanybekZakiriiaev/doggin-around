@@ -1,0 +1,111 @@
+{
+  "version": 1,
+  "kind": "smal-pets-faces",
+  "count": 37525,
+  "vertexCount": 3889,
+  "faceCount": 7774,
+  "nearestFaces": 10,
+  "coordinateSpace": "mesh-local-y-up",
+  "topologyHash": "a50e2b829f2ac53c82655bc256fd62ad2cbdf6073b5d62123bb2323b0b37ddce",
+  "files": {
+    "splats": "splats.ply",
+    "restPositions": "rest.positions.bin",
+    "faces": "faces.bin",
+    "faceIds": "face-ids.bin",
+    "weights": "face-weights.bin",
+    "restTransforms": "rest-transforms.bin",
+    "headLook": "head-look.json"
+  },
+  "clips": [
+    {
+      "name": "idle",
+      "duration": 3.0,
+      "times": "clips/idle.times.bin",
+      "positions": "clips/idle.positions.bin"
+    },
+    {
+      "name": "walk",
+      "duration": 1.2,
+      "times": "clips/walk.times.bin",
+      "positions": "clips/walk.positions.bin"
+    },
+    {
+      "name": "run",
+      "duration": 0.5,
+      "times": "clips/run.times.bin",
+      "positions": "clips/run.positions.bin"
+    },
+    {
+      "name": "sit",
+      "duration": 2.5,
+      "times": "clips/sit.times.bin",
+      "positions": "clips/sit.positions.bin"
+    },
+    {
+      "name": "jump",
+      "duration": 2.4,
+      "times": "clips/jump.times.bin",
+      "positions": "clips/jump.positions.bin"
+    },
+    {
+      "name": "bark",
+      "duration": 2.4,
+      "times": "clips/bark.times.bin",
+      "positions": "clips/bark.positions.bin"
+    },
+    {
+      "name": "paw",
+      "duration": 3.0,
+      "times": "clips/paw.times.bin",
+      "positions": "clips/paw.positions.bin"
+    },
+    {
+      "name": "spin",
+      "duration": 4.0,
+      "times": "clips/spin.times.bin",
+      "positions": "clips/spin.positions.bin"
+    },
+    {
+      "name": "playbow",
+      "duration": 2.5,
+      "times": "clips/playbow.times.bin",
+      "positions": "clips/playbow.positions.bin"
+    },
+    {
+      "name": "sniff",
+      "duration": 3.0,
+      "times": "clips/sniff.times.bin",
+      "positions": "clips/sniff.positions.bin"
+    },
+    {
+      "name": "dig",
+      "duration": 2.0,
+      "times": "clips/dig.times.bin",
+      "positions": "clips/dig.positions.bin"
+    },
+    {
+      "name": "wag",
+      "duration": 2.0,
+      "times": "clips/wag.times.bin",
+      "positions": "clips/wag.positions.bin"
+    }
+  ],
+  "mouth": {
+    "face": 1844,
+    "barycentric": [
+      1.0,
+      0.0,
+      0.0
+    ]
+  },
+  "gaitCadence": {
+    "walk": {
+      "cyclesPerSecond": 0.8333333333333334,
+      "travelSpeed": 0.5554858021548188
+    },
+    "run": {
+      "cyclesPerSecond": 2.0,
+      "travelSpeed": 2.538473095450773
+    }
+  }
+}
