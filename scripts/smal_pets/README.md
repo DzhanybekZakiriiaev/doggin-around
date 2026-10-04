@@ -69,7 +69,7 @@ Adam uses betas 0.9 and 0.999 and epsilon 1e-8. Bound learning rates are shape 0
 
 Adaptive density control runs every 100 steps during the first 15000 free iterations. The projected gradient threshold is 0.0002 and opacity threshold is 0.005. Small splats clone exactly. Large splats replace their parent with two rotated Gaussian samples and scales divided by 1.6. Opacity resets every 3000 steps. The count is capped at 150000.
 
-The exporter rotates the complete pet and Gaussian covariances to face negative Z with Y up. It samples idle, walk, run, sit, jump, bark, paw, spin, playbow, sniff and wag at 30 FPS. The animated GLB contains the real 35-joint skeleton. Its four-influence skin serves inspection only. Gaussian and structural appearance use the full D-SMAL vertices in the binary clips. Contact refinement freezes fitted parameters and constrains paw anchors, sole points, foot orientation and the full mesh floor. It reports actual residuals in numerical-checks.json. Gait travel speed comes from backward stance-paw velocity multiplied by 2.6 divided by the actual rest mesh maximum span.
+The exporter rotates the complete pet and Gaussian covariances to face negative Z with Y up. It samples idle, walk, run, sit, jump, bark, paw, spin, playbow, sniff, dig and wag at 30 FPS. The animated GLB contains the real 35-joint skeleton. Its four-influence skin serves inspection only. Gaussian and structural appearance use the full D-SMAL vertices in the binary clips. Contact refinement freezes fitted parameters and constrains paw anchors, sole points, foot orientation and the full mesh floor. It reports actual residuals in numerical-checks.json. Gait travel speed comes from backward stance-paw velocity multiplied by 2.6 divided by the actual rest mesh maximum span.
 
 Splats use deterministic spatial ordering across 32 by 32 by 32 cells. Each cell prioritizes opacity, then cells interleave in seed 42 order. Density files use identical 50000, 100000 and 150000 prefixes. Smaller trained models are never padded.
 
@@ -111,16 +111,18 @@ The final maximum error across paw anchors and sole triplets is approximately 0.
 
 The final package preserves baked-clips.npz, all full vertex binary clips and dog-animated.glb. rest-transforms.bin stores the exact Float32 Gaussian covariance transforms. The 50000, 100000 and 150000 presets are unavailable because the accepted model contains 37525 rows. No rows were padded or duplicated.
 
-Reuse the finalized motions and accepted appearance without another contact solve:
+The local CPU runtime can export saved motions or rebake selected clips without another GPU session. Its pinned environment, compatibility aliases for Chumpy and model parity check are preserved in ignored work/tricolor/cpu-runtime.json. CPU rest vertices match the original GPU export within 2.39e-7.
 
-    export PATH=/workspace/tricolor/venv/bin:/usr/local/cuda/bin:$PATH
-    export CUDA_HOME=/usr/local/cuda TORCH_CUDA_ARCH_LIST=8.6 MAX_JOBS=4
-    python scripts/smal_pets/export.py \
-      --bite-source /workspace/bite \
-      --bite-fit /workspace/tricolor/bite-fit/canonical.npz \
-      --checkpoint /workspace/tricolor/training/checkpoint.pt \
-      --ply /workspace/tricolor/training/dge/accepted-appearance.ply \
-      --baked-npz /workspace/tricolor/export-calm-sniff/baked-clips.npz \
-      --output /workspace/tricolor/export-reused
+    OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
+    work/tricolor/cpu-venv/bin/python scripts/smal_pets/export.py \
+      --device cpu \
+      --bite-source work/tricolor/cpu-bite \
+      --bite-fit work/tricolor/bite-fit/canonical.npz \
+      --checkpoint work/tricolor/training-final/checkpoint.pt \
+      --ply work/tricolor/semantic-blend/accepted-appearance.ply \
+      --baked-npz public/models/tricolor-research/baked-clips.npz \
+      --output work/tricolor/export-reused
 
-To regenerate only Sniff from this preserved source, add --rebake-clips sniff. Source rest vertices and topology must still match the completed fit. The prior validated export remains at export-fallback-before-sniff for comparison.
+Add --rebake-clips jump dig to regenerate those two motions. A missing new clip must be named explicitly for baking. Every other saved clip is reused exactly, and all paw-target and floor gates still apply.
+
+Dig keeps the hind paws planted while the front paws alternate grounded backward scrapes and lifted forward returns. Jump uses separate front and hind paw trajectories, with front takeoff and landing preceding the hind pair. Both are baked through the full D-SMAL model, including foot orientation constraints.

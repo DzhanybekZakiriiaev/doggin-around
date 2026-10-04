@@ -114,5 +114,17 @@ test("backflip rotates once in the air, lands upright, and returns to idle", asy
   expect(result.endpointError).toBeLessThan(0.001)
   expect(result.action).toBe("idle")
   await expect(page.locator("#action-status")).toHaveText("IDLE")
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (
+            window.dogSandbox as typeof window.dogSandbox & {
+              camera: import("three").PerspectiveCamera
+            }
+          ).camera.fov,
+      ),
+    )
+    .toBeLessThan(38.02)
   expect(errors).toEqual([])
 })

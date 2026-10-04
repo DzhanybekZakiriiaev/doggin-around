@@ -13,6 +13,7 @@ const requiredActions = [
   "spin",
   "playbow",
   "sniff",
+  "dig",
   "wag",
 ]
 

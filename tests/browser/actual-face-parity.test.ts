@@ -40,7 +40,7 @@ assert np.allclose(transforms[:, 4:7], np.exp(cloud['log_scales']), atol=2e-7)
 rows = np.unique(np.round(np.linspace(0, count - 1, min(count, 256))).astype(int))
 clips = {clip['name']: clip for clip in manifest['clips']}
 poses = []
-for name, fraction in [('rest', 0), ('walk', .25), ('run', .35), ('sit', 1), ('sniff', .4), ('bark', .45)]:
+for name, fraction in [('rest', 0), ('walk', .25), ('run', .35), ('sit', 1), ('sniff', .4), ('bark', .45), ('jump', .35), ('dig', .4)]:
     time = 0
     posed = rest
     if name != 'rest':

@@ -1,4 +1,4 @@
-"""Bake eleven action profiles with full D-SMAL deformation."""
+"""Bake action profiles with full D-SMAL deformation."""
 
 import math
 import numpy as np
@@ -7,7 +7,7 @@ from scipy.spatial.transform import Rotation
 from model import axis_angle_matrix
 from geometry import body_forward
 
-CLIPS = {"idle": 90, "walk": 36, "run": 15, "sit": 75, "jump": 72, "bark": 72, "paw": 90, "spin": 120, "playbow": 75, "sniff": 90, "wag": 60}
+CLIPS = {"idle": 90, "walk": 36, "run": 15, "sit": 75, "jump": 72, "bark": 72, "paw": 90, "spin": 120, "playbow": 75, "sniff": 90, "dig": 60, "wag": 60}
 LEGS = [(7, 8, 9, 1330), (11, 12, 13, 3282), (17, 18, 19, 1521), (21, 22, 23, 3473)]
 MOUTH_VERTEX = 910
 SOLES = [[1399, 1349, 1319], [3352, 3261, 3324], [1628, 1684, 1668], [3549, 3488, 3621]]
@@ -20,6 +20,10 @@ def smooth(start, end, value):
 
 def window(start, rise, fall, end, value):
     return smooth(start, rise, value) * (1 - smooth(fall, end, value))
+
+
+def pulse(start, peak, end, value):
+    return window(start, peak, peak, end, value)
 
 
 def save_bake(path, rest, faces, clips, errors, pet):
@@ -130,6 +134,7 @@ def bake_animations(pet, fps=30, names=None):
             t = frame / length
             rotations = initial.copy()
             translation = np.zeros(3)
+            paw_offsets = np.zeros((4, 3))
 
             def rotate(joint, angle, axis=None):
                 vector = local_side[joint] if axis is None else axis[joint]
@@ -166,14 +171,20 @@ def bake_animations(pet, fps=30, names=None):
                 rotate(head, -0.38 * settle)
                 rotate(25, -0.65 * settle)
             elif name == "jump":
-                crouch = window(0, 0.11, 0.19, 0.27, t) + window(0.75, 0.84, 0.91, 1, t)
-                flight = max(0, math.sin(math.pi * np.clip((t - 0.22) / 0.60, 0, 1))) ** 1.15
-                tuck = window(0.19, 0.37, 0.60, 0.80, t)
-                translation += up * (0.34 * flight - 0.04 * crouch)
+                crouch = pulse(0, 0.12, 0.27, t)
+                absorb = pulse(0.69, 0.84, 1, t)
+                flight = pulse(0.28, 0.51, 0.70, t)
+                pitch = 0.14 * pulse(0.15, 0.31, 0.53, t) - 0.15 * pulse(0.50, 0.71, 0.96, t)
+                translation += up * (0.20 * flight - 0.035 * crouch - 0.04 * absorb)
+                rotate(0, pitch)
+                rotate(neck, -0.6 * pitch)
+                rotate(head, -0.2 * pitch)
                 for index, (upper, lower, _, _) in enumerate(LEGS):
-                    rotate(upper, (-0.46 if index < 2 else 0.32) * tuck)
-                    rotate(lower, 0.36 * crouch + (0.78 if index < 2 else 0.62) * tuck)
-                rotate(head, 0.13 * flight)
+                    front = index < 2
+                    lift = pulse(0.15, 0.43, 0.73, t) if front else pulse(0.28, 0.51, 0.86, t)
+                    paw_offsets[index] = up * (0.30 if front else 0.28) * lift + forward * (0.035 if front else 0.012) * lift
+                    rotate(upper, (-0.28 if front else 0.22) * lift)
+                    rotate(lower, (0.55 if front else -0.42) * lift + (0.18 if front else -0.18) * crouch)
             elif name == "bark":
                 bark = max(0, math.sin(6 * math.pi * t)) ** 2
                 rotate(head, -0.23 * bark)
@@ -203,9 +214,29 @@ def bake_animations(pet, fps=30, names=None):
                 rotate(head, 0.1)
                 rotate(head, -0.6, local_up)
                 rotate(32, -0.2)
+            elif name == "dig":
+                translation += -up * 0.045 + side * (0.006 * math.cos(4 * math.pi * t))
+                rotate(0, -0.10)
+                for joint in torso:
+                    rotate(joint, -0.22 / len(torso))
+                rotate(neck, -0.30)
+                rotate(head, 0.05)
+                rotate(head, 0.025 * math.sin(4 * math.pi * t), local_up)
+                for index, (upper, lower, _, _) in enumerate(LEGS[:2]):
+                    phase = (2 * t + index * 0.5) % 1
+                    if phase <= 0.55:
+                        reach = 0.07 - 0.13 * smooth(0, 0.55, phase)
+                        lift = 0
+                    else:
+                        recovery = (phase - 0.55) / 0.45
+                        reach = -0.06 + 0.13 * smooth(0, 1, recovery)
+                        lift = math.sin(math.pi * recovery) ** 2
+                    paw_offsets[index] = forward * reach + up * 0.075 * lift
+                    rotate(upper, -0.22 * lift)
+                    rotate(lower, 0.40 * lift)
             elif name == "wag":
                 rotate(head, 0.04 * math.sin(2 * math.pi * t))
-            looping = name in {"idle", "walk", "run", "sniff", "wag"}
+            looping = name in {"idle", "walk", "run", "sniff", "dig", "wag"}
             envelope = 1 if looping else window(0, 0.12, 0.86, 1, t)
             breath = (1 - math.cos(2 * math.pi * t)) * 0.5
             if name in {"idle", "wag"}:
@@ -224,13 +255,15 @@ def bake_animations(pet, fps=30, names=None):
                 rotate(joint, envelope * (math.sin(4 * math.pi * t - lag) + math.sin(lag)) * (0.035 if name == "jump" else 0.018))
             pose = torch.as_tensor(Rotation.from_matrix(rotations).as_rotvec(), device=device, dtype=torch.float32)[None]
             offset = torch.as_tensor(translation, device=device, dtype=torch.float32)
-            contact = list(range(4)) if name in {"sit", "playbow", "sniff"} or name == "jump" and flight < 1e-5 else [1, 2, 3] if name == "paw" else []
+            contact = list(range(4)) if name in {"sit", "playbow", "sniff", "jump", "dig"} else [1, 2, 3] if name == "paw" else []
             if contact:
                 joint_ids = [joint for index in contact for joint in LEGS[index][:3]]
                 point_ids = [LEGS[index][3] for index in contact]
                 goal = targets[contact].copy()
                 marker_ids = np.array([[LEGS[index][3], *SOLES[index]] for index in contact]).reshape(-1)
                 marker_goal = rest[marker_ids].copy().reshape(len(contact), 4, 3)
+                goal += paw_offsets[contact]
+                marker_goal += paw_offsets[contact, None, :]
                 if name == "sit":
                     for index, leg in enumerate(contact):
                         if leg >= 2:
@@ -286,9 +319,11 @@ def bake_animations(pet, fps=30, names=None):
                 relative = posed_frames @ rest_frames.transpose(0, 2, 1)
                 cos_angle = np.clip((np.trace(relative, axis1=1, axis2=2) - 1) / 2, -1, 1)
                 sole_angles.append(float(np.rad2deg(np.arccos(cos_angle)).max()))
+            if frame and frame % 15 == 0:
+                print(f"Baking {name} frame {frame}/{length}, target error {max(errors, default=0):.8f}", flush=True)
         frames = np.stack(frames)
         assert np.isfinite(frames).all(), name
-        if name in {"idle", "walk", "run", "wag", "spin", "jump", "bark", "paw", "playbow"}:
+        if name in {"idle", "walk", "run", "wag", "spin", "jump", "bark", "paw", "playbow", "dig"}:
             assert np.max(np.abs(frames[0] - frames[-1])) < 1e-4, name
         clips[name] = {"duration": length / fps, "times": np.arange(length + 1, dtype=np.float32) / fps, "positions": frames, "jointTranslations": np.stack(joint_translations), "jointQuaternions": np.stack(joint_quaternions), "minimumPawHeight": float(frames[:, [leg[3] for leg in LEGS], 1].min()), "maximumSoleOrientationErrorDegrees": max(sole_angles, default=0)}
         contact_errors[name] = max(errors, default=0)

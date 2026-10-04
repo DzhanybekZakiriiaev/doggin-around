@@ -94,14 +94,15 @@ def main():
     parser.add_argument("--rebake-clips", nargs="+", choices=list(CLIPS), default=[])
     parser.add_argument("--output", required=True)
     parser.add_argument("--counts", type=int, nargs="+", default=[50000, 100000, 150000])
+    parser.add_argument("--device", choices=("cpu", "cuda"), default="cuda")
     args = parser.parse_args()
-    saved = torch.load(args.checkpoint, map_location="cuda", weights_only=False)
+    saved = torch.load(args.checkpoint, map_location=args.device, weights_only=False)
     if saved["stage"] != "free":
         raise RuntimeError("Export requires the free Gaussian stage")
     training_args = saved.get("args", {})
     if "free_steps" not in training_args or "bound_steps" not in training_args or int(saved["step"]) < int(training_args["free_steps"]):
         raise RuntimeError("Export requires a completed free Gaussian stage")
-    pet = PetModel(args.bite_source, args.bite_fit)
+    pet = PetModel(args.bite_source, args.bite_fit, device=args.device)
     pet.load_state_dict(saved["pet"])
     faces = pet.faces.cpu().numpy()
     parameters = read_ply(args.ply) if args.ply else {name: value.cpu().numpy() for name, value in saved["gaussians"].items()}
@@ -131,18 +132,18 @@ def main():
         clips = load_baked_clips(args.baked_glb, pet)
         checks = json.loads(Path(args.baked_glb).with_name("bake-check.json").read_text())
         contact_errors = checks["contact_max_errors"]
-        if set(clips) != set(CLIPS):
-            raise RuntimeError("Baked skeleton does not contain all eleven profiles")
     else:
         if args.rebake_clips:
             raise RuntimeError("Selective baking requires a solved motion source")
         clips, contact_errors = bake_animations(pet)
-    if set(clips) != set(CLIPS):
-        raise RuntimeError("Solved motion does not contain all eleven profiles")
+    missing = set(CLIPS) - set(clips)
+    if set(clips) - set(CLIPS) or missing - set(args.rebake_clips):
+        raise RuntimeError("Solved motion must contain every profile not being rebaked")
     if args.rebake_clips:
         corrected_clips, corrected_errors = bake_animations(pet, names=args.rebake_clips)
         clips.update(corrected_clips)
         contact_errors.update(corrected_errors)
+    clips = {name: clips[name] for name in CLIPS}
     viewer_scale = 2.6 / np.ptp(rest, axis=0).max()
     if max(contact_errors.values()) * viewer_scale >= 0.013:
         raise RuntimeError("Animation contact error exceeds 0.013 viewer units")

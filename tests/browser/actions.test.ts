@@ -177,22 +177,44 @@ test("plays bark audio on command and stops it with pause, reset, and other acti
   expect(
     await audio.evaluate((element) => (element as HTMLAudioElement).paused),
   ).toBe(true)
-  await page.getByRole("button", { name: "Bark", exact: true }).click()
-  await expect
-    .poll(() =>
-      audio.evaluate((element) => (element as HTMLAudioElement).paused),
+  // Pause on the first sound frame before this short clip can end.
+  await audio.evaluate((element) => {
+    const sound = element as HTMLAudioElement
+    sound.addEventListener(
+      "playing",
+      () => {
+        sound.setAttribute(
+          "data-first-playing",
+          String(!sound.paused && !sound.ended),
+        )
+        document.querySelector<HTMLButtonElement>("#pause")?.click()
+      },
+      { once: true },
     )
-    .toBe(false)
-  await page.getByRole("button", { name: "Pause", exact: true }).click()
+  })
+  await page.getByRole("button", { name: "Bark", exact: true }).click()
+  await expect(audio).toHaveAttribute("data-first-playing", "true")
+  await expect(
+    page.getByRole("button", { name: "Resume", exact: true }),
+  ).toBeEnabled()
   expect(
     await audio.evaluate((element) => (element as HTMLAudioElement).paused),
   ).toBe(true)
-  await page.getByRole("button", { name: "Resume", exact: true }).click()
-  await expect
-    .poll(() =>
-      audio.evaluate((element) => (element as HTMLAudioElement).paused),
+  expect(
+    await audio.evaluate((element) => (element as HTMLAudioElement).ended),
+  ).toBe(false)
+  await audio.evaluate((element) => {
+    const sound = element as HTMLAudioElement
+    sound.addEventListener(
+      "playing",
+      () => {
+        sound.setAttribute("data-resumed-playing", String(!sound.paused))
+      },
+      { once: true },
     )
-    .toBe(false)
+  })
+  await page.getByRole("button", { name: "Resume", exact: true }).click()
+  await expect(audio).toHaveAttribute("data-resumed-playing", "true")
   await page.getByRole("button", { name: "Reset pose", exact: true }).click()
   expect(
     await audio.evaluate((element) => ({
@@ -251,8 +273,19 @@ test("repeats the short bark three times during the gesture", async ({
 })
 
 test("runs to a distant fetch and returns to idle", async ({ page }) => {
+  await page.locator("#action-status").evaluate((status) => {
+    const observed = new Set<string>()
+    const observer = new MutationObserver(() => {
+      observed.add(status.textContent ?? "")
+      status.setAttribute("data-played", [...observed].join(" "))
+    })
+    observer.observe(status, { childList: true })
+  })
   await page.getByRole("button", { name: "Toss the ball" }).click()
-  await expect(page.locator("#action-status")).toHaveText("RUN")
+  await expect(page.locator("#action-status")).toHaveAttribute(
+    "data-played",
+    /\bRUN\b/,
+  )
   await expect(page.locator("#fetch-status")).toHaveText(
     "CLICK THE FLOOR TO PLAY FETCH · DRAG TO ORBIT",
     { timeout: 15000 },

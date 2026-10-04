@@ -465,10 +465,23 @@ renderer.setAnimationLoop(() => {
       })
   }
 })
-window.addEventListener("pagehide", () => {
+window.addEventListener("pagehide", async (event) => {
   stopBark()
+  if (event.persisted) return
   observer.disconnect()
   renderer.setAnimationLoop(null)
+  spark.autoUpdate = false
+  spark.sortDirty = false
+  if (spark.updateTimeoutId !== undefined) {
+    clearTimeout(spark.updateTimeoutId)
+    spark.updateTimeoutId = undefined
+  }
+  if (spark.sortTimeoutId !== undefined) {
+    clearTimeout(spark.sortTimeoutId)
+    spark.sortTimeoutId = undefined
+  }
+  // Keep render targets alive until the pending sort has finished.
+  while (spark.sorting) await new Promise((done) => setTimeout(done, 0))
   fetchPlay.dispose()
   dog.dispose()
   controls.dispose()
