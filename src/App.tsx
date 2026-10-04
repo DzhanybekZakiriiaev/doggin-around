@@ -18,6 +18,53 @@ const FOREST =
 const BEACH =
   "https://images.unsplash.com/photo-1690717967633-42ea62146320?auto=format&fit=crop&w=1600&q=84";
 
+type Quest = {
+  key: string;
+  number: string;
+  chapter: string;
+  title: string;
+  premise: string;
+  image: string;
+  goal: string;
+  story: (name: string) => string;
+};
+
+const QUESTS: Quest[] = [
+  {
+    key: "backyard",
+    number: "01",
+    chapter: "THE BACKYARD",
+    title: "THE MISSING TOY",
+    premise: "Something squeaky has vanished...",
+    image: QUEST_DOG,
+    goal: "FIND THE MISSING TOY",
+    story: (name) =>
+      `${name}’s favorite toy has disappeared somewhere in this world. Explore together and help them find it.`,
+  },
+  {
+    key: "forest",
+    number: "02",
+    chapter: "FOREST TRAIL",
+    title: "INTO THE WILD",
+    premise: "A strange scent drifts out of the trees.",
+    image: FOREST,
+    goal: "FOLLOW THE SCENT",
+    story: (name) =>
+      `A strange scent is drifting out of the trees. Follow ${name}’s nose deep into the forest and see where the trail leads.`,
+  },
+  {
+    key: "beach",
+    number: "03",
+    chapter: "BEACH DAY",
+    title: "HIGH TIDE",
+    premise: "Sun, surf, and a trail of pawprints.",
+    image: BEACH,
+    goal: "BEAT THE TIDE",
+    story: (name) =>
+      `The tide is rolling in fast. Race ${name} along the shore and dig up the buried treasure before the waves wash it away.`,
+  },
+];
+
 type IconName =
   | "upload"
   | "arrow"
@@ -315,64 +362,52 @@ function TechDebugToggle({
   );
 }
 
-type QuestPanelProps = {
-  questKey: string;
-  chapter: string;
-  title: string;
-  premise: string;
-  image: string;
-  available?: boolean;
-  onClick?: () => void;
-  onHover?: (quest: string | null) => void;
-  className?: string;
-};
-
-function ComicQuestPanel({
-  questKey,
-  chapter,
-  title,
-  premise,
-  image,
-  available = false,
+function StoryPanel({
+  quest,
+  chosen,
   onClick,
   onHover,
-  className = "",
-}: QuestPanelProps) {
+}: {
+  quest: Quest;
+  chosen: boolean;
+  onClick: () => void;
+  onHover: (quest: string | null) => void;
+}) {
   return (
     <button
-      className={`quest-panel ${available ? "quest-panel--available" : ""} ${className}`}
+      className={`story-panel story-panel--${quest.key} ${chosen ? "story-panel--chosen" : ""}`}
+      onBlur={() => onHover(null)}
       onClick={onClick}
-      onPointerEnter={() => onHover?.(questKey)}
-      onPointerLeave={() => onHover?.(null)}
+      onFocus={() => onHover(quest.key)}
+      onPointerEnter={() => onHover(quest.key)}
+      onPointerLeave={() => onHover(null)}
       type="button"
     >
-      <img alt="" src={image} />
-      <span className="quest-shade" />
-      <span className="quest-status">{available ? "AVAILABLE NOW" : "COMING SOON"}</span>
-      <span className="quest-copy">
-        <small>{chapter}</small>
-        <strong>{title}</strong>
-        <em>{premise}</em>
-      </span>
-      {available && (
-        <span className="enter-panel">
-          ENTER PANEL <Icon name="chevron" size={18} />
+      <img alt="" draggable="false" src={quest.image} />
+      <span className="story-shade" />
+      <span className="story-status">QUEST {quest.number}</span>
+      <span className="story-copy">
+        <small>{quest.chapter}</small>
+        <strong>{quest.title}</strong>
+        <em>{quest.premise}</em>
+        <span className="story-enter">
+          ENTER PANEL <Icon name="chevron" size={14} />
         </span>
-      )}
-      <span className="motion-lines" />
+      </span>
     </button>
   );
 }
 
-function LockedQuestPanel({ onHover }: { onHover?: (quest: string | null) => void }) {
+function LockedStoryPanel({ onHover }: { onHover: (quest: string | null) => void }) {
   return (
     <div
-      className="quest-panel quest-panel--locked"
-      onPointerEnter={() => onHover?.("locked")}
-      onPointerLeave={() => onHover?.(null)}
+      aria-disabled="true"
+      className="story-panel story-panel--locked"
+      onPointerEnter={() => onHover("locked")}
+      onPointerLeave={() => onHover(null)}
     >
-      <div className="lock-mark">
-        <Icon name="lock" size={26} />
+      <div className="story-lock">
+        <Icon name="lock" size={24} />
         <strong>CLASSIFIED</strong>
         <small>NEW ADVENTURE INCOMING</small>
       </div>
@@ -605,7 +640,7 @@ function QuestHub({
 }: {
   dogImage: string;
   name: string;
-  onNext: () => void;
+  onNext: (quest: Quest) => void;
 }) {
   const spatial = useSpatialPointer();
   const [activeQuest, setActiveQuest] = useState<string | null>(null);
@@ -615,21 +650,26 @@ function QuestHub({
   const [petting, setPetting] = useState(false);
   const [listening, setListening] = useState(false);
   const [called, setCalled] = useState(false);
-  const [pageRotation, setPageRotation] = useState({ x: -3, y: -9 });
+  const [pageRotation, setPageRotation] = useState({ x: 2, y: -5 });
   const [pageDrag, setPageDrag] = useState(false);
   const [pageStart, setPageStart] = useState({ x: 0, y: 0 });
-  const [entering, setEntering] = useState(false);
+  const [entering, setEntering] = useState<string | null>(null);
 
   const callDog = () => {
     setCalled(true);
     window.setTimeout(() => setCalled(false), 850);
   };
-  const selectQuest = (quest: string | null) => setActiveQuest(quest);
-  const enterPanel = () => {
-    setActiveQuest("backyard");
-    setEntering(true);
-    window.setTimeout(onNext, 820);
+  const selectQuest = (quest: string | null) => {
+    if (!entering) setActiveQuest(quest);
   };
+  const enterQuest = (quest: Quest) => {
+    if (entering) return;
+    setActiveQuest(quest.key);
+    setEntering(quest.key);
+    window.setTimeout(() => onNext(quest), 820);
+  };
+  const hoveredTitle =
+    activeQuest === "locked" ? "CLASSIFIED" : QUESTS.find((quest) => quest.key === activeQuest)?.title;
 
   return (
     <section
@@ -690,9 +730,9 @@ function QuestHub({
           <strong>DRAG TO ROTATE PAGE</strong>
         </div>
         <div
-          className="comic-page-wrap"
+          className="storyboard-wrap"
           onPointerDown={(event) => {
-            if ((event.target as HTMLElement).closest(".quest-panel")) return;
+            if ((event.target as HTMLElement).closest(".story-panel")) return;
             setPageDrag(true);
             setPageStart({ x: event.clientX - pageRotation.y * 10, y: event.clientY + pageRotation.x * 10 });
             event.currentTarget.setPointerCapture(event.pointerId);
@@ -700,58 +740,32 @@ function QuestHub({
           onPointerMove={(event) => {
             if (!pageDrag) return;
             setPageRotation({
-              x: Math.max(-13, Math.min(13, -(event.clientY - pageStart.y) / 10)),
-              y: Math.max(-15, Math.min(15, (event.clientX - pageStart.x) / 10)),
+              x: Math.max(-10, Math.min(10, -(event.clientY - pageStart.y) / 10)),
+              y: Math.max(-12, Math.min(12, (event.clientX - pageStart.x) / 10)),
             });
           }}
           onPointerUp={() => setPageDrag(false)}
         >
           <div
-            className="comic-page"
+            className={`storyboard ${entering ? "storyboard--entering" : ""}`}
             style={{ transform: `rotateX(${pageRotation.x}deg) rotateY(${pageRotation.y}deg)` }}
           >
-            <span className="page-edge page-edge--right" />
-            <span className="page-edge page-edge--bottom" />
-            <div className="quest-grid">
-              <ComicQuestPanel
-                available
-                chapter="THE BACKYARD"
-                className="quest-one"
-                image={QUEST_DOG}
-                onClick={enterPanel}
+            {QUESTS.map((quest) => (
+              <StoryPanel
+                chosen={entering === quest.key}
+                key={quest.key}
+                onClick={() => enterQuest(quest)}
                 onHover={selectQuest}
-                premise="Something squeaky has vanished..."
-                questKey="backyard"
-                title="THE MISSING TOY"
+                quest={quest}
               />
-              <ComicQuestPanel
-                chapter="FOREST TRAIL"
-                className="quest-two"
-                image={FOREST}
-                onHover={selectQuest}
-                premise="The wild path is still being drawn."
-                questKey="forest"
-                title="INTO THE WILD"
-              />
-              <ComicQuestPanel
-                chapter="BEACH DAY"
-                className="quest-three"
-                image={BEACH}
-                onHover={selectQuest}
-                premise="Sun, surf, and a trail of pawprints."
-                questKey="beach"
-                title="HIGH TIDE"
-              />
-              <LockedQuestPanel onHover={selectQuest} />
-            </div>
+            ))}
+            <LockedStoryPanel onHover={selectQuest} />
           </div>
         </div>
-        {activeQuest && (
-          <div className={`floating-quest-caption floating-quest-caption--${activeQuest}`}>
-            <small>{activeQuest === "backyard" ? "AVAILABLE PORTAL" : "ARCHIVE PREVIEW"}</small>
-            <strong>
-              {activeQuest === "backyard" ? "THE MISSING TOY" : activeQuest === "forest" ? "INTO THE WILD" : activeQuest === "beach" ? "HIGH TIDE" : "CLASSIFIED"}
-            </strong>
+        {hoveredTitle && !entering && (
+          <div className="floating-quest-caption" key={activeQuest}>
+            <small>{activeQuest === "locked" ? "ARCHIVE PREVIEW" : "CLICK TO ENTER"}</small>
+            <strong>{hoveredTitle}</strong>
           </div>
         )}
       </div>
@@ -760,7 +774,7 @@ function QuestHub({
   );
 }
 
-function QuestIntro({ dogImage, name }: { dogImage: string; name: string }) {
+function QuestIntro({ dogImage, name, quest }: { dogImage: string; name: string; quest: Quest }) {
   const [entered, setEntered] = useState(false);
   const spatial = useSpatialPointer();
   return (
@@ -772,7 +786,7 @@ function QuestIntro({ dogImage, name }: { dogImage: string; name: string }) {
       <SpatialLayers word="PORTAL" />
       <TopBar screen={4} />
       <div className="world-panel">
-        <img alt="A dog setting out on a golden backyard adventure" src={QUEST_DOG} />
+        <img alt={`${quest.chapter.toLowerCase()} quest world`} src={quest.image} />
         <div className="world-vignette" />
         <div className="speed-streaks" />
         <div className="quest-dog">
@@ -780,13 +794,13 @@ function QuestIntro({ dogImage, name }: { dogImage: string; name: string }) {
         </div>
         <div className="issue-badge">
           <small>DOGGIN’ AROUND</small>
-          <strong>QUEST 01</strong>
+          <strong>QUEST {quest.number}</strong>
         </div>
         <div className="intro-copy">
-          <span className="chapter-label">THE BACKYARD</span>
+          <span className="chapter-label">{quest.chapter}</span>
           <NarrationBox>
-            <strong>THE MISSING TOY</strong>
-            <span>{name}’s favorite toy has disappeared somewhere in this world. Explore together and help them find it.</span>
+            <strong>{quest.title}</strong>
+            <span>{quest.story(name)}</span>
           </NarrationBox>
         </div>
         <div className="controls">
@@ -801,7 +815,7 @@ function QuestIntro({ dogImage, name }: { dogImage: string; name: string }) {
         {entered && (
           <div className="quest-started">
             <span>QUEST START</span>
-            <strong>FIND THE MISSING TOY</strong>
+            <strong>{quest.goal}</strong>
           </div>
         )}
       </div>
@@ -814,6 +828,7 @@ export default function App() {
   const [transitioning, setTransitioning] = useState(false);
   const [dogImage, setDogImage] = useState(SAMPLE_DOG);
   const [dogName, setDogName] = useState("MILO");
+  const [quest, setQuest] = useState(QUESTS[0]);
 
   const next = () => {
     setTransitioning(true);
@@ -846,8 +861,17 @@ export default function App() {
           setName={setDogName}
         />
       )}
-      {screen === 3 && <QuestHub dogImage={dogImage} name={dogName} onNext={next} />}
-      {screen === 4 && <QuestIntro dogImage={dogImage} name={dogName} />}
+      {screen === 3 && (
+        <QuestHub
+          dogImage={dogImage}
+          name={dogName}
+          onNext={(chosen) => {
+            setQuest(chosen);
+            next();
+          }}
+        />
+      )}
+      {screen === 4 && <QuestIntro dogImage={dogImage} name={dogName} quest={quest} />}
       <div aria-hidden="true" className="transition-slice transition-slice--one" />
       <div aria-hidden="true" className="transition-slice transition-slice--two" />
       <div aria-hidden="true" className="transition-slice transition-slice--three" />
