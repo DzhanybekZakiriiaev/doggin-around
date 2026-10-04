@@ -3,7 +3,9 @@ import {
   ChangeEvent,
   DragEvent,
   PointerEvent as ReactPointerEvent,
+  KeyboardEvent as ReactKeyboardEvent,
   ReactNode,
+  useEffect,
   useRef,
   useState,
 } from "react";
@@ -510,6 +512,142 @@ function UploadScreen({
   );
 }
 
+const DOG_LAYERS = 7;
+const DOG_DEPTH = 26;
+
+// Spin-anywhere viewer: the photo is stacked into thin layers so it has depth from every angle.
+// Drag to orbit (with a little momentum), tap to pet, arrow keys to turn.
+function DogViewer({ dogImage, name, mood }: { dogImage: string; name: string; mood: string }) {
+  const [angle, setAngle] = useState({ x: -6, y: -18 });
+  const [dragging, setDragging] = useState(false);
+  const [petting, setPetting] = useState(false);
+  const drag = useRef({ x: 0, y: 0, angleX: 0, angleY: 0, lastX: 0, velocity: 0, moved: false });
+  const spin = useRef(0);
+  const petTimer = useRef(0);
+
+  useEffect(
+    () => () => {
+      cancelAnimationFrame(spin.current);
+      window.clearTimeout(petTimer.current);
+    },
+    [],
+  );
+
+  const pet = () => {
+    setPetting(true);
+    window.clearTimeout(petTimer.current);
+    petTimer.current = window.setTimeout(() => setPetting(false), 900);
+  };
+
+  const coast = (velocity: number) => {
+    cancelAnimationFrame(spin.current);
+    const step = () => {
+      velocity *= 0.94;
+      if (Math.abs(velocity) < 0.05) return;
+      setAngle((current) => ({ ...current, y: current.y + velocity }));
+      spin.current = requestAnimationFrame(step);
+    };
+    spin.current = requestAnimationFrame(step);
+  };
+
+  const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const turns: Record<string, [number, number]> = {
+      ArrowLeft: [0, -20],
+      ArrowRight: [0, 20],
+      ArrowUp: [8, 0],
+      ArrowDown: [-8, 0],
+    };
+    if (turns[event.key]) {
+      event.preventDefault();
+      const [dx, dy] = turns[event.key];
+      setAngle((current) => ({ x: Math.max(-25, Math.min(25, current.x + dx)), y: current.y + dy }));
+    } else if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      pet();
+    }
+  };
+
+  const layers = Array.from({ length: DOG_LAYERS }, (_, index) => {
+    const depth = -DOG_DEPTH / 2 + (index * DOG_DEPTH) / (DOG_LAYERS - 1);
+    const face = index === DOG_LAYERS - 1 ? "front" : index === 0 ? "back" : "core";
+    return { depth, face };
+  });
+
+  return (
+    <div
+      aria-label={`${name} in 3D. Drag or use the arrow keys to spin, press Enter to pet.`}
+      className={`dog-viewer ${dragging ? "dog-viewer--dragging" : ""}`}
+      onKeyDown={onKeyDown}
+        onPointerCancel={() => setDragging(false)}
+        onPointerDown={(event) => {
+          cancelAnimationFrame(spin.current);
+          drag.current = {
+            x: event.clientX,
+            y: event.clientY,
+            angleX: angle.x,
+            angleY: angle.y,
+            lastX: event.clientX,
+            velocity: 0,
+            moved: false,
+          };
+          setDragging(true);
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }}
+        onPointerMove={(event) => {
+          if (!dragging) return;
+          const state = drag.current;
+          const dx = event.clientX - state.x;
+          const dy = event.clientY - state.y;
+          if (Math.abs(dx) + Math.abs(dy) > 5) state.moved = true;
+          state.velocity = (event.clientX - state.lastX) * 0.55;
+          state.lastX = event.clientX;
+          setAngle({
+            x: Math.max(-25, Math.min(25, state.angleX - dy * 0.3)),
+            y: state.angleY + dx * 0.55,
+          });
+        }}
+        onPointerUp={() => {
+          setDragging(false);
+          if (!drag.current.moved) pet();
+          else coast(drag.current.velocity);
+        }}
+      role="img"
+      tabIndex={0}
+    >
+      <div className="hub-dog-stage">
+        <div className="hub-platform">
+          <i />
+          <i />
+        </div>
+        <div className={`hub-dog hub-dog--${mood} ${petting ? "hub-dog--petted" : ""}`}>
+          <div className="dog-spinner" style={{ transform: `rotateX(${angle.x}deg) rotateY(${angle.y}deg)` }}>
+            {dogImage ? (
+              layers.map(({ depth, face }) => (
+                <div
+                  className={`dog-layer dog-layer--${face}`}
+                  key={depth}
+                  style={{ transform: `translateZ(${depth}px)` }}
+                >
+                  <img alt="" draggable="false" src={dogImage} />
+                </div>
+              ))
+            ) : (
+              <div className="dog-placeholder">
+                <Icon name="upload" size={30} />
+                <strong>NO PHOTO YET</strong>
+              </div>
+            )}
+          </div>
+          {petting && <span className="hub-heart">♥</span>}
+        </div>
+      </div>
+      <p className="dog-viewer-hint">
+        <Icon name="rotate" size={14} /> DRAG TO SPIN 360° · TAP TO PET
+      </p>
+    </div>
+  );
+}
+
 function QuestHub({
   dogImage,
   name,
@@ -525,10 +663,6 @@ function QuestHub({
 }) {
   const spatial = useSpatialPointer();
   const [activeQuest, setActiveQuest] = useState<string | null>(null);
-  const [dogRotation, setDogRotation] = useState(0);
-  const [dogDrag, setDogDrag] = useState(false);
-  const [dogStart, setDogStart] = useState(0);
-  const [petting, setPetting] = useState(false);
   const [entering, setEntering] = useState<string | null>(null);
 
   const selectQuest = (quest: string | null) => {
@@ -563,43 +697,11 @@ function QuestHub({
           <DogNameEditor name={name} onChange={setName} />
           <span>{activeQuest ? `REACTING: ${activeQuest}` : "READY TO EXPLORE"}</span>
         </div>
-        <div
-          className="hub-dog-stage"
-          onPointerDown={(event) => {
-            setDogDrag(true);
-            setDogStart(event.clientX - dogRotation);
-            event.currentTarget.setPointerCapture(event.pointerId);
-          }}
-          onPointerMove={(event) => dogDrag && setDogRotation(event.clientX - dogStart)}
-          onPointerUp={() => setDogDrag(false)}
-        >
-          <div className="hub-platform"><i /><i /></div>
-          <div
-            className={`hub-dog hub-dog--${activeQuest ?? "idle"} ${petting ? "hub-dog--petted" : ""}`}
-            style={{ transform: `rotateY(${dogRotation / 4 + (activeQuest ? 8 : 0)}deg)` }}
-          >
-            {dogImage ? (
-              <img alt={`${displayName}, waiting to choose an adventure`} draggable="false" src={dogImage} />
-            ) : (
-              <div className="dog-placeholder">
-                <Icon name="upload" size={30} />
-                <strong>NO PHOTO YET</strong>
-              </div>
-            )}
-            {petting && <span className="hub-heart">♥</span>}
-          </div>
-          <button
-            aria-label={`Pet ${displayName}`}
-            className="hub-pet-target"
-            onPointerDown={(event) => { event.stopPropagation(); setPetting(true); }}
-            onPointerLeave={() => setPetting(false)}
-            onPointerUp={() => setPetting(false)}
-            type="button"
-          />
-        </div>
-        <div className="hub-dog-controls">
-          <span><Icon name="rotate" size={14} /> DRAG DOG</span>
-        </div>
+        <DogViewer
+          dogImage={dogImage}
+          mood={activeQuest ?? "idle"}
+          name={displayName}
+        />
       </div>
       <div className="page-zone">
         <div className="page-zone-title">
