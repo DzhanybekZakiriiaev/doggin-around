@@ -530,42 +530,61 @@ function useBackgroundMusic(playing: boolean, volume: number) {
   };
 }
 
-const CLICK_SRC = "/click.wav";
-// The file peaks around -6 dBFS, so ~1.8x (+5 dB) makes it clearly audible without clipping
-const CLICK_GAIN = 1.8;
+// Gains are relative to the default slider level. Click peaks ~-6 dBFS, hover ~-16 dBFS, so both have headroom;
+// hover sits a little under the click.
+const UI_SOUNDS = {
+  click: { src: "/click.wav", gain: 1.8 },
+  hover: { src: "/hover.mp3", gain: 1.6 },
+} as const;
 
-// Plays the click tone for every button press. Web Audio (rather than <audio>) allows boosting past 100%
-// and overlapping rapid clicks. Its level follows the volume slider, reaching CLICK_GAIN at the default.
-function useClickSound(volume: number) {
+// Button clicks and quest-panel hovers. Web Audio (rather than <audio>) allows boosting past 100%
+// and overlapping quick repeats. Levels follow the volume slider.
+function useUiSounds(volume: number) {
   const volumeRef = useRef(volume);
   volumeRef.current = volume;
 
   useEffect(() => {
     const context = new AudioContext();
-    let buffer: AudioBuffer | null = null;
-    fetch(CLICK_SRC)
-      .then((response) => response.arrayBuffer())
-      .then((data) => context.decodeAudioData(data))
-      .then((decoded) => {
-        buffer = decoded;
-      })
-      .catch(() => {});
+    const buffers: Partial<Record<keyof typeof UI_SOUNDS, AudioBuffer>> = {};
+    (Object.keys(UI_SOUNDS) as (keyof typeof UI_SOUNDS)[]).forEach((name) => {
+      fetch(UI_SOUNDS[name].src)
+        .then((response) => response.arrayBuffer())
+        .then((data) => context.decodeAudioData(data))
+        .then((decoded) => {
+          buffers[name] = decoded;
+        })
+        .catch(() => {});
+    });
 
-    const onClick = (event: MouseEvent) => {
+    const play = (name: keyof typeof UI_SOUNDS) => {
+      const buffer = buffers[name];
       if (!buffer || volumeRef.current === 0) return;
-      if (!(event.target as Element | null)?.closest("button")) return;
       if (context.state === "suspended") void context.resume();
       const gain = context.createGain();
-      gain.gain.value = Math.min(2, (CLICK_GAIN * volumeRef.current) / DEFAULT_VOLUME);
+      gain.gain.value = Math.min(2, (UI_SOUNDS[name].gain * volumeRef.current) / DEFAULT_VOLUME);
       const source = context.createBufferSource();
       source.buffer = buffer;
       source.connect(gain).connect(context.destination);
       source.start();
     };
 
+    const onClick = (event: MouseEvent) => {
+      if ((event.target as Element | null)?.closest("button")) play("click");
+    };
+    // Fires once per panel entry (not when moving between a panel's children); touch taps only get the click
+    const onPointerOver = (event: PointerEvent) => {
+      if (event.pointerType === "touch") return;
+      const panel = (event.target as Element | null)?.closest(".story-panel");
+      if (!panel || panel.contains(event.relatedTarget as Node | null)) return;
+      if (panel.closest(".storyboard--entering")) return;
+      play("hover");
+    };
+
     document.addEventListener("click", onClick, true);
+    document.addEventListener("pointerover", onPointerOver, true);
     return () => {
       document.removeEventListener("click", onClick, true);
+      document.removeEventListener("pointerover", onPointerOver, true);
       void context.close();
     };
   }, []);
@@ -1015,7 +1034,7 @@ export default function App() {
   const [questChosen, setQuestChosen] = useState(false);
   const [volume, setVolumeState] = useState(readVolume);
   const startMusic = useBackgroundMusic(!splash && !questChosen, volume);
-  useClickSound(volume);
+  useUiSounds(volume);
 
   const setVolume = (next: number) => {
     setVolumeState(next);
