@@ -1,12 +1,13 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { SparkRenderer } from '@sparkjsdev/spark';
 import * as THREE from 'three';
+import { Footsteps, LoopingSound, OneShot } from './audio';
 import { Biscuit } from './biscuit';
 import { Doorway } from './door';
 import { FirstPersonHands, HAND_ACTIONS, type HandAction } from './hands';
 import { Interactions } from './interaction';
 import { MoodLights } from './lighting';
-import { LEVEL_RUNS, PLACEMENTS } from './levels';
+import { LEVEL_RUNS, PLACEMENTS, type Footing, type Surface } from './levels';
 import { FirstPersonPlayer } from './player';
 import { Prop } from './props';
 import { AdaptiveQuality } from './quality';
@@ -50,6 +51,30 @@ const hands = new FirstPersonHands(renderer);
 hands.setAspect(camera.aspect);
 const interactions = new Interactions($('#prompt'));
 const transition = new ComicTransition($('#transition'));
+// Ambience for the whole session. It starts for real on the player's first click: browsers block
+// audio until then.
+const rain = new LoopingSound('/audio/rain.mp3', 0.4);
+rain.start();
+rain.ready.catch((error) => console.error('No rain:', error)); // the game is still playable in silence
+// Footfalls, on whichever surface the player is standing on. The cadence comes from how far they
+// walk, not from the recordings, so wet ground and floorboards step at exactly the same rate.
+const footsteps = new Footsteps(
+  { wet: '/audio/wet-footsteps.mp3', wood: '/audio/wood-footsteps.mp3' },
+  'wet',
+  0.7,
+);
+const doorCreak = new OneShot('/audio/door-creak.mp3', 0.85);
+doorCreak.ready.catch((error) => console.error('No door creak:', error));
+footsteps.ready
+  .then(() => {
+    // How the recordings got cut up: if a surface reports 1, its footfalls weren't found and the
+    // whole clip is being used as one step.
+    if (import.meta.env.DEV) {
+      const sliced = Object.entries(footsteps.sets).map(([surface, set]) => `${surface} ${set.count}`);
+      console.log(`Footsteps per surface: ${sliced.join(', ')}`);
+    }
+  })
+  .catch((error) => console.error('No footsteps:', error));
 const biscuit = new Biscuit(renderer, physics);
 scene.add(biscuit.group);
 biscuit.ready.catch((error) => {
@@ -96,6 +121,12 @@ const doorways = new WeakMap<MarbleWorld, Doorway[]>();
 const propHome = new Map<Prop, MarbleWorld>();
 let carried: Prop | undefined;
 let world: MarbleWorld | undefined;
+let footing: Footing = { ground: 'wet' };
+
+/** Planks if the player is up on the porch or its steps, otherwise whatever this world's ground is. */
+function underfoot(feetY: number): Surface {
+  return footing.boardsAbove !== undefined && feetY >= footing.boardsAbove ? 'wood' : footing.ground;
+}
 
 function loadWorld(runId: string): Promise<MarbleWorld> {
   const key = `${runId}@${resSelect.value}`;
@@ -155,6 +186,9 @@ async function enterWorld(runId: string, arrivingThrough?: string) {
   hands.setMood(mood);
   worldLights.setMood(mood);
   biscuit.setMood(mood);
+  footing = PLACEMENTS[runId]?.footing ?? { ground: mood === 'indoor' ? 'wood' : 'wet' };
+  // Straight cut, no fade: this lands under the tail of the door creak, which covers the change.
+  rain.muffle(mood === 'indoor' ? 1 : 0, 0);
   refreshInteractions();
   quality.reset();
   statusEl.textContent = worldRuns.find((run) => run.id === runId)?.label ?? runId;
@@ -301,6 +335,7 @@ async function goThrough(door: Doorway) {
       const action = leaf.opens === 'push' ? 'openDoor' : 'pullDoor';
       await new Promise<void>((swing) => void hands.play(action, { swing }, knob));
       void door.open();
+      doorCreak.play(); // the hinges, over whatever the rain is currently doing
       await new Promise((resolve) => setTimeout(resolve, leaf.opens === 'push' ? 300 : 450));
     }
     await transition.cover(door.placement.sfx);
@@ -385,6 +420,7 @@ if (import.meta.env.DEV) {
   Object.assign(window, {
     game: {
       renderer, scene, spark, quality, camera, player, hands, biscuit, physics, interactions, doorways, propHome,
+      rain, footsteps, doorCreak,
       getWorld: () => world, getCarried: () => carried, throwCarried, putDownCarried,
     },
   });
@@ -454,6 +490,8 @@ renderer.setAnimationLoop((time) => {
   const dt = Math.min(frameSeconds, 1 / 20);
   if (world) {
     player.update(dt);
+    footsteps.surface = underfoot(player.feet.y); // the porch is planked even though it's outdoors
+    footsteps.update(dt, player.motion);
     physics.timestep = dt;
     physics.step();
     for (const [prop, home] of propHome) if (home === world) prop.sync();
