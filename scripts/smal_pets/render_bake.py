@@ -2,7 +2,6 @@
 
 import argparse
 import json
-import struct
 from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -11,22 +10,7 @@ import torch
 from pytorch3d.renderer import DirectionalLights, FoVPerspectiveCameras, MeshRasterizer, MeshRenderer, RasterizationSettings, SoftPhongShader, TexturesVertex, look_at_view_transform
 from pytorch3d.structures import Meshes
 from model import PetModel
-
-
-def read_glb(path):
-    data = Path(path).read_bytes()
-    json_length = struct.unpack_from("<I", data, 12)[0]
-    document = json.loads(data[20:20 + json_length])
-    start = 20 + json_length + 8
-    binary = data[start:]
-
-    def accessor(index):
-        item = document["accessors"][index]
-        view = document["bufferViews"][item["bufferView"]]
-        width = {"SCALAR": 1, "VEC3": 3, "VEC4": 4}[item["type"]]
-        offset = view.get("byteOffset", 0) + item.get("byteOffset", 0)
-        return np.frombuffer(binary, dtype="<f4", count=item["count"] * width, offset=offset).reshape(-1, width).copy()
-    return document, accessor
+from glb import read_glb
 
 
 def main():
@@ -52,11 +36,14 @@ def main():
     rest_position = document["meshes"][0]["primitives"][0]["attributes"]["POSITION"]
     error = float(np.abs(accessor(rest_position) - rest).max())
     assert error < 2e-5, error
-    camera_positions = [(0, 0.30, -2.5), (2.5, 0.30, 0)]
+    camera_positions = [(0, 0.30, -2.0), (2.0, 0.30, 0)]
     lights = DirectionalLights(device="cuda", direction=((0.2, -0.5, -1.0),), ambient_color=((0.4, 0.4, 0.4),), diffuse_color=((0.6, 0.6, 0.6),), specular_color=((0, 0, 0),))
     raster_settings = RasterizationSettings(image_size=256, blur_radius=0, faces_per_pixel=1)
-    faces = pet.faces[None]
-    colors = torch.full((1, 3889, 3), 0.72, device="cuda")
+    floor_height = float(rest[:, 1].min())
+    floor_vertices = torch.as_tensor([[-0.8, floor_height, -0.8], [-0.8, floor_height, 0.8], [0.8, floor_height, 0.8], [0.8, floor_height, -0.8]], dtype=torch.float32, device="cuda")
+    floor_faces = torch.as_tensor([[3889, 3890, 3891], [3889, 3891, 3892]], device="cuda")
+    faces = torch.cat((pet.faces, floor_faces))[None]
+    colors = torch.cat((torch.full((3889, 3), 0.72, device="cuda"), torch.full((4, 3), 0.97, device="cuda")))[None]
     montage = Image.new("RGB", (1024, 6 * 280), "white")
     draw = ImageDraw.Draw(montage)
     font = ImageFont.load_default(size=18)
@@ -83,10 +70,13 @@ def main():
         offset = root_translation - np.asarray(document["nodes"][1]["translation"])
         with torch.no_grad():
             vertices = pet(pose, torch.as_tensor(offset, dtype=torch.float32, device="cuda"))
-            mesh = Meshes(verts=vertices[None], faces=faces, textures=TexturesVertex(verts_features=colors))
+            mesh = Meshes(verts=torch.cat((vertices, floor_vertices))[None], faces=faces, textures=TexturesVertex(verts_features=colors))
             images = []
             for eye in camera_positions:
-                rotation, translation = look_at_view_transform(eye=(eye,), at=((0, 0.1, 0),), up=((0, 1, 0),), device="cuda")
+                center_y = float((vertices[:, 1].min() + vertices[:, 1].max()) / 2)
+                target = np.array([0, center_y, 0])
+                eye = np.asarray(eye) + [0, center_y, 0]
+                rotation, translation = look_at_view_transform(eye=(eye,), at=(target,), up=((0, 1, 0),), device="cuda")
                 cameras = FoVPerspectiveCameras(device="cuda", R=rotation, T=translation, fov=40)
                 renderer = MeshRenderer(rasterizer=MeshRasterizer(cameras=cameras, raster_settings=raster_settings), shader=SoftPhongShader(device="cuda", cameras=cameras, lights=lights))
                 rgb = renderer(mesh)[0, :, :, :3].clamp(0, 1).cpu().numpy()

@@ -14,6 +14,10 @@ const CONTACT_GAIT_SPEED = { walk: 2.25, run: 4.7 } as const
 const HUAWEI_PICKUP_REACH = 0.42
 const PICKUP_DURATION = 1.2
 const GRAB_START = 0.85
+const ACCELERATION = 4
+const BRAKING = 6
+const TURN_ACCELERATION = 12
+const MAX_TURN_SPEED = 3.8
 
 export class FetchInteraction {
   readonly ball = new THREE.Group()
@@ -33,6 +37,8 @@ export class FetchInteraction {
   })
   private readonly target = new THREE.Vector3()
   private readonly pickupPoint = new THREE.Vector3()
+  private readonly pickupOffset = new THREE.Vector3()
+  private readonly up = new THREE.Vector3(0, 1, 0)
   private readonly throwStart = new THREE.Vector3()
   private readonly floor = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
   private readonly raycaster = new THREE.Raycaster()
@@ -41,7 +47,10 @@ export class FetchInteraction {
   private readonly groundBallPosition = new THREE.Vector3()
   private throwProgress = 0
   private pickupElapsed = 0
+  private pickupHeading?: number
   private locomotion: "walk" | "run" = "walk"
+  private velocity = 0
+  private turnVelocity = 0
   private pointerDown?: { id: number; x: number; y: number }
   private disposed = false
 
@@ -90,6 +99,20 @@ export class FetchInteraction {
     this.pickupPoint
       .copy(this.target)
       .lerp(this.home, distance > 0 ? Math.min(reach / distance, 1) : 1)
+    if (
+      (this.dog.hasFaceAppearance || this.dog.hasHeadLook) &&
+      this.dog.availableActions.includes("sniff") &&
+      this.dog.sampleActionMouthOffset("sniff", GRAB_START, this.pickupOffset)
+    ) {
+      this.pickupHeading =
+        distance > 1e-8
+          ? Math.atan2(-offset.x, -offset.z)
+          : this.dog.group.rotation.y
+      this.pickupOffset.y = 0
+      this.pickupOffset.applyAxisAngle(this.up, this.pickupHeading)
+      this.pickupPoint.copy(this.target).sub(this.pickupOffset)
+      this.pickupPoint.y = this.home.y
+    }
     this.throwStart
       .copy(this.dog.group.position)
       .add(new THREE.Vector3(0, 0.9, 0))
@@ -112,17 +135,28 @@ export class FetchInteraction {
         0.72 * Math.sin(Math.PI * progress) + 0.12 * progress
       if (progress === 1) {
         this.state = "chasing"
-        this.dog.setActionRate(this.gaitRate)
-        this.dog.playAction(this.locomotion)
+        this.dog.setActionRate(0.18)
+        this.dog.playAction("walk")
       }
       return
     }
     if (this.state === "chasing") {
       if (this.moveToward(this.pickupPoint, step)) {
+        if (this.pickupHeading !== undefined) {
+          this.turnToward(this.pickupHeading, step)
+          this.updateGaitRate("walk")
+          if (
+            Math.abs(this.angleDifference(this.pickupHeading)) >= 0.006 ||
+            Math.abs(this.turnVelocity) >= 0.03
+          )
+            return
+          this.turnVelocity = 0
+        }
         if (this.dog.availableActions.includes("sniff")) {
           this.state = "picking-up"
           this.pickupElapsed = 0
           this.groundBallPosition.copy(this.ball.position)
+          this.dog.lookToward(0)
           this.dog.setActionRate(1)
           this.dog.playAction("sniff")
         } else {
@@ -131,6 +165,41 @@ export class FetchInteraction {
       }
     } else if (this.state === "picking-up") {
       this.pickupElapsed = Math.min(PICKUP_DURATION, this.pickupElapsed + step)
+      this.updateBallPosition()
+      if (this.pickupElapsed === PICKUP_DURATION) {
+        this.state = "returning"
+        this.dog.setActionRate(0.18)
+        this.dog.playAction("walk")
+      }
+      return
+    } else if (this.state === "returning") {
+      if (this.moveToward(this.home, step)) {
+        this.state = "settling"
+        this.dog.playAction("walk")
+      }
+    } else if (this.state === "settling") {
+      this.turnToward(this.homeYaw, step)
+      this.updateGaitRate("walk")
+      if (
+        Math.abs(this.angleDifference(this.homeYaw)) < 0.006 &&
+        Math.abs(this.turnVelocity) < 0.03
+      ) {
+        this.state = "idle"
+        this.turnVelocity = 0
+        this.dog.lookToward(0)
+        this.dog.setActionRate(1)
+        this.dog.playAction("idle")
+        this.dropBall()
+      }
+    }
+    this.updateBallPosition()
+  }
+
+  updateBallPosition(): void {
+    if (this.disposed || this.dog.paused) return
+    if (this.state === "returning" || this.state === "settling")
+      this.carryBall()
+    else if (this.state === "picking-up") {
       const grab = Math.max(
         0,
         Math.min(
@@ -144,25 +213,7 @@ export class FetchInteraction {
           this.getMouthPosition(),
           grab * grab * (3 - 2 * grab),
         )
-      if (this.pickupElapsed === PICKUP_DURATION) {
-        this.state = "returning"
-        this.dog.setActionRate(this.gaitRate)
-        this.dog.playAction(this.locomotion)
-      }
-      return
-    } else if (this.state === "returning") {
-      if (this.moveToward(this.home, step)) {
-        this.state = "settling"
-        this.dog.setActionRate(1)
-        this.dog.playAction("idle")
-        this.dropBall()
-      }
-    } else if (this.state === "settling") {
-      this.turnToward(this.homeYaw, step)
-      if (Math.abs(this.angleDifference(this.homeYaw)) < 0.025)
-        this.state = "idle"
     }
-    if (this.state === "returning") this.carryBall()
   }
 
   stop(): void {
@@ -170,6 +221,10 @@ export class FetchInteraction {
     this.state = "idle"
     this.ball.visible = false
     this.pickupElapsed = 0
+    this.pickupHeading = undefined
+    this.velocity = 0
+    this.turnVelocity = 0
+    this.dog.lookToward(0)
     this.dog.setActionRate(1)
     this.dog.playAction("idle")
   }
@@ -198,19 +253,30 @@ export class FetchInteraction {
     const direction = point.clone().sub(this.dog.group.position)
     direction.y = 0
     const distance = direction.length()
-    if (distance <= 0.08) {
+    if (distance <= 0.001) {
       this.dog.group.position.copy(point)
+      this.velocity = 0
       return true
     }
     const heading = Math.atan2(-direction.x, -direction.z)
     this.turnToward(heading, delta)
     const facing = Math.max(0, Math.cos(this.angleDifference(heading)))
-    const travel = Math.min(distance, this.travelSpeed * delta * facing)
+    const desiredSpeed = Math.min(
+      this.travelSpeed * facing * facing,
+      Math.sqrt((BRAKING * delta) ** 2 + 2 * BRAKING * distance) -
+        BRAKING * delta,
+      distance * 4,
+    )
+    const change =
+      (desiredSpeed > this.velocity ? ACCELERATION : BRAKING) * delta
+    this.velocity += THREE.MathUtils.clamp(
+      desiredSpeed - this.velocity,
+      -change,
+      change,
+    )
+    const travel = Math.min(distance, this.velocity * delta)
     this.dog.group.position.addScaledVector(direction, travel / distance)
-    if (distance <= travel + 0.08) {
-      this.dog.group.position.copy(point)
-      return true
-    }
+    this.updateGaitRate(this.locomotion)
     return false
   }
 
@@ -223,8 +289,35 @@ export class FetchInteraction {
 
   private turnToward(target: number, delta: number): void {
     const difference = this.angleDifference(target)
-    this.dog.group.rotation.y +=
-      Math.sign(difference) * Math.min(Math.abs(difference), 5 * delta)
+    this.dog.lookToward(difference)
+    const desiredSpeed =
+      Math.sign(difference) *
+      Math.min(
+        MAX_TURN_SPEED,
+        Math.abs(difference) * 7,
+        Math.sqrt(2 * TURN_ACCELERATION * Math.abs(difference)),
+      )
+    this.turnVelocity += THREE.MathUtils.clamp(
+      desiredSpeed - this.turnVelocity,
+      -TURN_ACCELERATION * delta,
+      TURN_ACCELERATION * delta,
+    )
+    this.dog.group.rotation.y += this.turnVelocity * delta
+  }
+
+  private updateGaitRate(action: "walk" | "run"): void {
+    const gait =
+      action === "run" &&
+      this.velocity > (this.dog.action === "run" ? 0.95 : 1.4) &&
+      Math.abs(this.turnVelocity) < 2.2
+        ? "run"
+        : "walk"
+    if (this.dog.action !== gait) this.dog.playAction(gait)
+    const strideSpeed =
+      this.dog.gaitCadence?.[gait].travelSpeed ?? CONTACT_GAIT_SPEED[gait]
+    // Turning still needs steps when forward travel has stopped.
+    const pawSpeed = Math.hypot(this.velocity, this.turnVelocity * 0.35)
+    this.dog.setActionRate(Math.max(0.14, pawSpeed / strideSpeed))
   }
 
   private carryBall(): void {
@@ -232,7 +325,7 @@ export class FetchInteraction {
   }
 
   private getMouthPosition(): THREE.Vector3 {
-    if (this.dog.hasFaceAppearance)
+    if (this.dog.hasFaceAppearance || this.dog.hasHeadLook)
       return this.dog.getMouthWorldPosition(this.mouthPosition)
     const tip = this.dog.group.getObjectByName("joint_20")
     if (tip?.parent?.name === "joint_21")
@@ -245,12 +338,6 @@ export class FetchInteraction {
       this.dog.gaitCadence?.[this.locomotion].travelSpeed ??
       TRAVEL_SPEED[this.locomotion]
     )
-  }
-
-  private get gaitRate(): number {
-    return this.dog.gaitCadence
-      ? 1
-      : TRAVEL_SPEED[this.locomotion] / CONTACT_GAIT_SPEED[this.locomotion]
   }
 
   private dropBall(): void {

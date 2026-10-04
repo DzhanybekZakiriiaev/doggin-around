@@ -97,7 +97,7 @@ test("the dog lowers its muzzle, picks up the ball, and carries it from its mout
     }
   })
   expect(carrying.state).toBe("returning")
-  expect(carrying.action).toBe("run")
+  expect(carrying.action).toBe("walk")
   expect(carrying.maxBallStep).toBeLessThan(0.08)
   expect(carrying.gap).toBeLessThan(0.01)
   await page.evaluate(() => {

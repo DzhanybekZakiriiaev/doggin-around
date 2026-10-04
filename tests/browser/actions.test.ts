@@ -2,13 +2,11 @@ import { readFileSync } from "node:fs"
 import { expect, test } from "@playwright/test"
 import { DOG_ACTIONS, type DogAction } from "../../src/dog"
 
-const loopingActions = new Set<DogAction>([
-  "idle",
-  "walk",
-  "run",
-  "sniff",
-  "wag",
-])
+const loopingActions = new Set<DogAction>(
+  DOG_ACTIONS.filter(({ playback }) => playback === "loop").map(
+    ({ name }) => name,
+  ),
+)
 
 function rigWithActions(names: readonly DogAction[]): Buffer {
   const source = readFileSync("work/test-rig.glb")
@@ -50,10 +48,10 @@ test("exposes all available actions and preserves loop, hold, and gesture behavi
   const errors: string[] = []
   page.on("pageerror", (error) => errors.push(error.message))
   await expect(page.locator("#asset-detail")).toHaveText(
-    "11 motion clips · textured skin · live rig",
+    `${DOG_ACTIONS.length} motion clips · textured skin · live rig`,
   )
-  for (const { name, label } of DOG_ACTIONS) {
-    const returnsToIdle = !loopingActions.has(name) && name !== "sit"
+  for (const { name, label, playback } of DOG_ACTIONS) {
+    const returnsToIdle = playback === "once"
     const button = page.getByRole("button", { name: label, exact: true })
     await button.click()
     await expect(page.locator("#action-status")).toHaveText(label.toUpperCase())

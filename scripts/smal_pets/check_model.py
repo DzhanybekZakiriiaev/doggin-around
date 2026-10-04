@@ -27,12 +27,15 @@ def main():
         expected = expected - fit["trans"].reshape(1, 3)
     error = float(np.abs(vertices.detach().cpu().numpy() - expected).max())
     assert error < 2e-5, error
-    loss = vertices.square().mean()
+    regularizers = pet.regularization(vertices)
+    expected_offsets = float(torch.linalg.vector_norm(pet.offsets.detach()).square())
+    assert np.isclose(float(regularizers["offsets"].detach()), expected_offsets)
+    loss = vertices.square().mean() + sum(regularizers.values())
     loss.backward()
     gradients = {name: bool(parameter.grad is not None and torch.isfinite(parameter.grad).all()) for name, parameter in (("betas", pet.betas), ("limbs", pet.limbs), ("pose", pet.pose), ("offsets", pet.offsets))}
     assert all(gradients.values()), gradients
     sorted_weights = torch.sort(pet.smal.weights, descending=True, dim=1).values
-    report = {"status": "passed", "native_vertex_max_error": error, "gradients_finite": gradients, "full_joint_count": 35, "pose_corrective_basis": list(pet.smal.posedirs.shape), "pose_corrective_norm": float(pet.smal.posedirs.norm()), "maximum_skin_mass_beyond_four": float(sorted_weights[:, 4:].sum(-1).max())}
+    report = {"status": "passed", "native_vertex_max_error": error, "gradients_finite": gradients, "full_joint_count": 35, "pose_corrective_basis": list(pet.smal.posedirs.shape), "pose_corrective_norm": float(pet.smal.posedirs.norm()), "offset_squared_l2": expected_offsets, "geometric_reduction": "mean", "parameter_prior_reduction": "sum", "maximum_skin_mass_beyond_four": float(sorted_weights[:, 4:].sum(-1).max())}
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
     Path(args.output).write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps(report))

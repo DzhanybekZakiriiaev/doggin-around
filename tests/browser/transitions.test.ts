@@ -23,9 +23,10 @@ test("repeated gestures and interrupted blends preserve the rendered pose", asyn
   const beforeRestart = await page.evaluate(() =>
     window.dogSandbox.dog.group.getObjectByName("root")?.quaternion.toArray(),
   )
-  await page.getByRole("button", { name: "Spin", exact: true }).click()
   const afterRestart = await page.evaluate(() => {
     const dog = window.dogSandbox.dog
+    document.querySelector<HTMLButtonElement>('[data-action="spin"]')?.click()
+    dog.paused = true
     dog.update(0)
     return dog.group.getObjectByName("root")?.quaternion.toArray()
   })

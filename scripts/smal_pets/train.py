@@ -18,7 +18,7 @@ from gsplat import rasterization
 import trimesh
 
 from gaussians import normalize_proxy, read_ply, write_ply
-from geometry import align_mesh, camera_views
+from geometry import align_mesh, body_forward, camera_views
 from model import PetModel
 
 
@@ -135,7 +135,7 @@ def prepare_targets(args):
     write_ply(output / "proxy_normalized.ply", proxy)
     np.savez(output / "proxy_mesh.npz", vertices=vertices.astype(np.float32), faces=np.asarray(mesh.faces, dtype=np.int32))
     views = camera_views(args.views, args.resolution)
-    tensor_proxy = {name: torch.as_tensor(value, device="cuda") for name, value in proxy.items()}
+    tensor_proxy = {name: torch.as_tensor(value, dtype=torch.float32, device="cuda") for name, value in proxy.items()}
     with torch.no_grad():
         for view in views:
             image, alpha, _ = render(tensor_proxy, view, args.resolution)
@@ -143,20 +143,27 @@ def prepare_targets(args):
             Image.fromarray((pixels * 255).round().astype(np.uint8), "RGBA").save(output / view["file"])
     configuration = {"resolution": args.resolution, "views": views, "proxy_transform": transform, "target_source": "trellis-gaussians", "seed": 42, "coordinateSpace": "mesh-local-y-up"}
     (output / "cameras.json").write_text(json.dumps(configuration, indent=2) + "\n")
-    montage = Image.new("RGB", (2 * args.resolution, 2 * (args.resolution + 24)), "white")
+    return proxy, vertices, configuration
+
+
+def write_target_montage(configuration, output, forward):
+    resolution = configuration["resolution"]
+    views = configuration["views"]
+    up = np.array([0, 1, 0])
+    side = np.cross(forward, up)
+    montage = Image.new("RGB", (2 * resolution, 2 * (resolution + 24)), "white")
     draw = ImageDraw.Draw(montage)
-    directions = {"front": [0, 0.2, -1], "side": [1, 0.2, 0], "rear": [0, 0.2, 1], "three quarter": [0.7, 0.2, -0.7]}
+    directions = {"front": forward + 0.2 * up, "side": side + 0.2 * up, "rear": -forward + 0.2 * up, "three quarter": forward + 0.7 * side + 0.2 * up}
     selected = {}
     for index, (label, direction) in enumerate(directions.items()):
         direction = np.asarray(direction) / np.linalg.norm(direction)
         view = max(views, key=lambda item: np.dot(np.linalg.inv(item["view"])[:3, 3] / 2, direction))
         col, row = index % 2, index // 2
-        montage.paste(Image.open(output / view["file"]).convert("RGB"), (col * args.resolution, row * (args.resolution + 24) + 24))
-        draw.text((col * args.resolution + 8, row * (args.resolution + 24) + 6), f"{label}  calibrated view {view['id']}", fill="black")
+        montage.paste(Image.open(output / view["file"]).convert("RGB"), (col * resolution, row * (resolution + 24) + 24))
+        draw.text((col * resolution + 8, row * (resolution + 24) + 6), f"{label}  calibrated view {view['id']}", fill="black")
         selected[label] = view["id"]
     montage.save(output / "target-montage.png")
     (output / "target-montage.json").write_text(json.dumps(selected, indent=2) + "\n")
-    return proxy, vertices, configuration
 
 
 def validate(parameters, configuration, output, step):
@@ -190,6 +197,7 @@ def main():
     parser.add_argument("--cap", type=int, default=150000)
     parser.add_argument("--stop-after", type=int)
     parser.add_argument("--resume")
+    parser.add_argument("--initialization", help="JSON similarity transform and optional joint and limb settings")
     args = parser.parse_args()
     random.seed(42)
     np.random.seed(42)
@@ -205,13 +213,33 @@ def main():
         proxy, vertices, configuration = prepare_targets(args)
     args.resolution = configuration["resolution"]
     pet = PetModel(args.bite_source, args.bite_fit)
-    rotation, scale, translation = align_mesh(pet().detach().cpu().numpy(), vertices)
+    initialization = None
+    if args.initialization:
+        initialization = json.loads(Path(args.initialization).read_text())
+        rotation = np.asarray(initialization["rotation"], dtype=np.float64)
+        scale = float(initialization["scale"])
+        translation = np.asarray(initialization["translation"], dtype=np.float64)
+        if rotation.shape != (3, 3) or translation.shape != (3,) or scale <= 0 or not np.allclose(rotation @ rotation.T, np.eye(3), atol=1e-5) or not np.isclose(np.linalg.det(rotation), 1, atol=1e-5):
+            raise ValueError("Invalid anatomical similarity transform")
+        with torch.no_grad():
+            for joint, vector in initialization.get("joint_rotvec", {}).items():
+                pet.pose[0, int(joint)] = torch.as_tensor(vector, dtype=torch.float32, device="cuda")
+            for index, value in initialization.get("limb_values", {}).items():
+                pet.limbs[0, int(index)] = float(value)
+            pet.initial_pose.copy_(pet.pose.detach())
+        (output / "initialization.json").write_text(json.dumps(initialization, indent=2) + "\n")
+    else:
+        rotation, scale, translation = align_mesh(pet().detach().cpu().numpy(), vertices)
     pet.set_alignment(rotation, scale, translation)
     bound = BoundGaussians(pet, proxy)
+    aligned = pet().detach().cpu().numpy()
+    forward = body_forward(aligned)
+    write_target_montage(configuration, output, forward)
+    (output / "alignment.json").write_text(json.dumps({"native_up_to_world": (rotation @ np.array([0, 0, 1])).tolist(), "body_forward": forward.tolist(), "nose_forward": (aligned[1863] - aligned[452]).tolist(), "scale": scale, "translation": translation.tolist(), "rotation": rotation.tolist(), "fit": "anatomical anchors" if initialization else "yaw-only upright ICP"}, indent=2) + "\n")
     pet.export_fit(output / "initial_alignment.npz")
     trimesh.Trimesh(vertices=pet().detach().cpu().numpy(), faces=pet.faces.cpu().numpy(), process=False).export(output / "initial_alignment.obj")
     preview_views = []
-    for direction in ([0, 0.2, -1], [1, 0.2, 0]):
+    for direction in (forward + np.array([0, 0.2, 0]), np.cross(forward, [0, 1, 0]) + np.array([0, 0.2, 0])):
         direction = np.asarray(direction) / np.linalg.norm(direction)
         preview_views.append(max(configuration["views"], key=lambda view: np.dot(np.linalg.inv(view["view"])[:3, 3] / 2, direction)))
     previews = []
@@ -250,12 +278,17 @@ def main():
     train_views = [view for view in configuration["views"] if view["split"] == "train"]
     targets = {view["id"]: torch.as_tensor(np.asarray(Image.open(output / view["file"]).convert("RGB")).copy(), device="cuda", dtype=torch.float32) / 255 for view in train_views}
     started = time.monotonic()
+    stage_started = started
+    stage_completed = 0
     completed_now = 0
     checked_stages = set()
 
     def checkpoint(filename="checkpoint.pt"):
         parameters = bound.parameters_at(pet()) if stage == "bound" else free
-        torch.save({"pet": pet.state_dict(), "gaussians": bound.state_dict() if stage == "bound" else free.state_dict(), "optimizer": optimizer.state_dict(), "stage": stage, "step": step, "history": history, "args": vars(args), "torch_rng": torch.get_rng_state(), "cuda_rng": torch.cuda.get_rng_state(), "python_rng": random.getstate(), "numpy_rng": np.random.get_state(), "gradient_sum": gradient_sum, "gradient_count": gradient_count}, output / filename)
+        checkpoint_path = output / filename
+        temporary_path = output / f".{filename}.tmp"
+        torch.save({"pet": pet.state_dict(), "gaussians": bound.state_dict() if stage == "bound" else free.state_dict(), "optimizer": optimizer.state_dict(), "stage": stage, "step": step, "history": history, "args": vars(args), "torch_rng": torch.get_rng_state(), "cuda_rng": torch.cuda.get_rng_state(), "python_rng": random.getstate(), "numpy_rng": np.random.get_state(), "gradient_sum": gradient_sum, "gradient_count": gradient_count}, temporary_path)
+        temporary_path.replace(checkpoint_path)
         write_ply(output / "latest.ply", numpy_parameters(parameters))
         pet.export_fit(output / "optimized_fit.npz")
         (output / "training.json").write_text(json.dumps({"stage": stage, "step": step, "bound_steps": args.bound_steps, "free_steps": args.free_steps, "complete": stage == "free" and step >= args.free_steps, "count": len(parameters["means"]), "elapsed_seconds_this_run": time.monotonic() - started, "configuration": configuration, "defaults": vars(args), "validation": history}, indent=2) + "\n")
@@ -269,6 +302,8 @@ def main():
                 stage, step = "free", 0
                 optimizer = torch.optim.Adam(pet.optimizer_groups(0.1) + free.optimizer_groups(), betas=(0.9, 0.999), eps=1e-8)
                 checkpoint("bound-checkpoint.pt")
+                stage_started = time.monotonic()
+                stage_completed = 0
             if stage == "free" and step >= args.free_steps:
                 break
             if args.stop_after is not None and completed_now >= args.stop_after:
@@ -329,9 +364,10 @@ def main():
                                 opacity_state[moment].zero_()
             step += 1
             completed_now += 1
+            stage_completed += 1
             if step % 100 == 0:
                 elapsed = time.monotonic() - started
-                print(json.dumps({"stage": stage, "step": step, "loss": float(loss.detach()), "rgb": float(rgb.detach()), "count": len(parameters["means"]), "steps_per_second": completed_now / elapsed}), flush=True)
+                print(json.dumps({"stage": stage, "step": step, "loss": float(loss.detach()), "rgb": float(rgb.detach()), "regularizers": {name: float(value.detach()) for name, value in regularizers.items()}, "count": len(bound.face_ids) if stage == "bound" else len(free["means"]), "steps_per_second": completed_now / elapsed, "stage_steps_per_second": stage_completed / (time.monotonic() - stage_started)}), flush=True)
             if step % 1000 == 0:
                 current = bound.parameters_at(pet()) if stage == "bound" else free
                 history.append(validate(current, configuration, output, step + (args.bound_steps if stage == "free" else 0)))

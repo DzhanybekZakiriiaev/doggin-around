@@ -43,10 +43,18 @@ def make_fixture(path):
     assert np.allclose(results["rigid"][0], points @ rigid_rotation.T + translation, atol=1e-7)
     assert np.allclose(results["rigid"][2], scales, atol=1e-8)
     assert np.allclose(results["stretch"][2], scales * 1.2, atol=1e-8)
+    frame_rotation = Rotation.from_rotvec([0, 1.2, 0])
+    frame_matrix = frame_rotation.as_matrix()
+    frame_quaternions = (frame_rotation * rotations).as_quat()[:, [3, 0, 1, 2]]
+    framed = deform(points @ frame_matrix.T, frame_quaternions, scales, rest @ frame_matrix.T, deformations["articulated"] @ frame_matrix.T, faces, indices, weights)
+    expected_quaternions = (frame_rotation * Rotation.from_quat(results["articulated"][1][:, [1, 2, 3, 0]])).as_quat()[:, [3, 0, 1, 2]]
+    assert np.allclose(framed[0], results["articulated"][0] @ frame_matrix.T, atol=1e-7)
+    assert np.allclose(np.abs((framed[1] * expected_quaternions).sum(1)), 1, atol=1e-7)
+    assert np.allclose(framed[2], results["articulated"][2], atol=1e-8)
     fixture = {"version": 1, "nearestFaces": 10, "count": len(points), "vertexCount": len(rest), "faceCount": len(faces), "restPositions": rest.reshape(-1).tolist(), "faces": faces.reshape(-1).tolist(), "positions": points.reshape(-1).tolist(), "quaternions": quaternions[:, [1, 2, 3, 0]].reshape(-1).tolist(), "scales": scales.reshape(-1).tolist(), "faceIds": indices.reshape(-1).tolist(), "weights": weights.reshape(-1).tolist(), "cases": cases, "tolerance": 2e-6}
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     Path(path).write_text(json.dumps(fixture, indent=2) + "\n")
-    print(json.dumps({"status": "passed", "identity_max_error": float(np.abs(results["identity"][0] - points).max()), "rigid_max_error": float(np.abs(results["rigid"][0] - (points @ rigid_rotation.T + translation)).max()), "stretch_max_error": float(np.abs(results["stretch"][2] - scales * 1.2).max()), "fixture": str(path)}))
+    print(json.dumps({"status": "passed", "identity_max_error": float(np.abs(results["identity"][0] - points).max()), "rigid_max_error": float(np.abs(results["rigid"][0] - (points @ rigid_rotation.T + translation)).max()), "stretch_max_error": float(np.abs(results["stretch"][2] - scales * 1.2).max()), "frame_rotation_max_error": float(np.abs(framed[0] - results["articulated"][0] @ frame_matrix.T).max()), "fixture": str(path)}))
 
 
 if __name__ == "__main__":

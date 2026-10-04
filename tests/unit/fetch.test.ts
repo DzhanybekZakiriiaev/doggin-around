@@ -29,11 +29,12 @@ function fixture() {
     setActionRate(rate: number) {
       actionRate = rate
     },
-    playAction(action: DogAction) {
+    lookToward() {},
+    playAction(this: { action: DogAction }, action: DogAction) {
       this.action = action
       played.push(action)
     },
-  } as Dog
+  } as unknown as Dog
   const fetch = new FetchInteraction(dog, scene, camera, viewport)
   return { dog, fetch, scene, played }
 }
@@ -44,7 +45,7 @@ describe("fetch interaction", () => {
     expect(fetch.throwTo(new THREE.Vector3(2, 0, -1.5))).toBe(true)
     expect(fetch.ball.visible).toBe(true)
     expect(fetch.state).toBe("throwing")
-    for (let frame = 0; frame < 220 && fetch.state !== "idle"; frame++)
+    for (let frame = 0; frame < 450 && fetch.state !== "idle"; frame++)
       fetch.update(1 / 30)
     expect(fetch.state).toBe("idle")
     expect(dog.action).toBe("idle")
@@ -94,20 +95,23 @@ describe("fetch interaction", () => {
   it("runs to distant throws and walks to nearby ones when both clips exist", () => {
     const { dog, fetch } = fixture()
     dog.availableActions.push("run")
-    fetch.throwTo(new THREE.Vector3(2, 0, 0))
+    fetch.throwTo(new THREE.Vector3(0, 0, -2.6))
     for (let frame = 0; frame < 18; frame++) fetch.update(1 / 30)
+    expect(dog.action).toBe("walk")
+    expect(dog.actionRate).toBeGreaterThan(0)
+    for (let frame = 0; frame < 20; frame++) fetch.update(1 / 30)
     expect(dog.action).toBe("run")
-    expect(dog.actionRate).toBeCloseTo(2.1 / 4.7)
     fetch.reset()
     expect(dog.actionRate).toBe(1)
     fetch.throwTo(new THREE.Vector3(1, 0, 0))
     for (let frame = 0; frame < 18; frame++) fetch.update(1 / 30)
     expect(dog.action).toBe("walk")
-    expect(dog.actionRate).toBeCloseTo(0.6)
+    expect(dog.actionRate).toBeGreaterThan(0)
+    expect(dog.actionRate).toBeLessThan(0.6)
     fetch.dispose()
   })
 
-  it("keeps gait phase through pickup and turns before traveling home", () => {
+  it("walks into pickup and turns before traveling home", () => {
     const { dog, fetch, played } = fixture()
     dog.availableActions.push("run")
     dog.speed = 1.5
@@ -115,8 +119,9 @@ describe("fetch interaction", () => {
     for (let frame = 0; frame < 120 && fetch.state !== "returning"; frame++)
       fetch.update(1 / 30)
     expect(fetch.state).toBe("returning")
-    expect(dog.action).toBe("run")
-    expect(dog.actionRate).toBeCloseTo(2.1 / 4.7)
+    expect(dog.action).toBe("walk")
+    expect(dog.actionRate).toBeGreaterThan(0)
+    expect(dog.actionRate).toBeLessThan(2.1 / 4.7)
     expect(dog.speed).toBe(1.5)
     expect(played.filter((action) => action === "run")).toHaveLength(1)
     const pickup = dog.group.position.clone()
@@ -158,8 +163,8 @@ describe("fetch interaction", () => {
     for (let frame = 0; frame < 30 && fetch.state !== "returning"; frame++)
       fetch.update(1 / 30)
     expect(fetch.state).toBe("returning")
-    expect(dog.action).toBe("run")
-    expect(played.slice(-2)).toEqual(["sniff", "run"])
+    expect(dog.action).toBe("walk")
+    expect(played.slice(-2)).toEqual(["sniff", "walk"])
     expect(
       fetch.ball.position.distanceTo(
         mouth.localToWorld(new THREE.Vector3(0, -0.04, -0.1)),

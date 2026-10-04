@@ -9,6 +9,12 @@ def normalize(value, epsilon=1e-8):
     return value / np.maximum(np.linalg.norm(value, axis=-1, keepdims=True), epsilon)
 
 
+def body_forward(vertices):
+    forward = vertices[[1330, 3282]].mean(axis=0) - vertices[[1521, 3473]].mean(axis=0)
+    forward[1] = 0
+    return normalize(forward)
+
+
 def face_frames(vertices, faces):
     triangles = vertices[faces]
     edge = triangles[:, 1] - triangles[:, 0]
@@ -71,25 +77,21 @@ def camera_views(count=96, resolution=512, radius=2.0, fov=40.0):
 
 
 def align_mesh(source, target):
-    """Choose an axis alignment, then refine a similarity with ICP."""
-    import itertools
-
+    """Keep native Z upright and fit yaw, scale and translation with ICP."""
     source_center = source.mean(axis=0)
     target_center = target.mean(axis=0)
-    source_scale = np.max(np.ptp(source, axis=0))
     target_scale = np.max(np.ptp(target, axis=0))
-    scale = target_scale / max(source_scale, 1e-8)
     tree = cKDTree(target)
     candidates = []
-    for order in itertools.permutations(range(3)):
-        for signs in itertools.product((-1, 1), repeat=3):
-            matrix = np.eye(3)[list(order)] * np.array(signs)[:, None]
-            if np.linalg.det(matrix) < 0:
-                continue
-            shifted = (source - source_center) @ matrix.T * scale + target_center
-            distance, _ = tree.query(shifted)
-            candidates.append((np.mean(np.minimum(distance, 0.1) ** 2), matrix))
-    rotation = min(candidates, key=lambda value: value[0])[1]
+    upright = np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]], dtype=np.float64)
+    for angle in np.linspace(0, 2 * np.pi, 16, endpoint=False):
+        c, s = np.cos(angle), np.sin(angle)
+        matrix = np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]]) @ upright
+        scale = target_scale / max(np.ptp(source @ matrix.T, axis=0).max(), 1e-8)
+        shifted = (source - source_center) @ matrix.T * scale + target_center
+        distance, _ = tree.query(shifted)
+        candidates.append((np.mean(np.minimum(distance, 0.1) ** 2), matrix, scale))
+    _, rotation, scale = min(candidates, key=lambda value: value[0])
     translation = target_center - source_center @ rotation.T * scale
     for _ in range(30):
         aligned = source @ rotation.T * scale + translation
@@ -99,10 +101,13 @@ def align_mesh(source, target):
         b = target[closest[keep]]
         ac = a.mean(axis=0)
         bc = b.mean(axis=0)
-        u, singular, vt = np.linalg.svd((a - ac).T @ (b - bc))
-        correction = np.eye(3)
-        correction[-1, -1] = np.sign(np.linalg.det(vt.T @ u.T))
-        rotation = vt.T @ correction @ u.T
-        scale = float((singular * np.diag(correction)).sum() / np.maximum(np.square(a - ac).sum(), 1e-8))
+        native = (a - ac) @ upright.T
+        centered = b - bc
+        cosine = (native[:, 0] * centered[:, 0] + native[:, 2] * centered[:, 2]).sum()
+        sine = (native[:, 2] * centered[:, 0] - native[:, 0] * centered[:, 2]).sum()
+        angle = np.arctan2(sine, cosine)
+        c, s = np.cos(angle), np.sin(angle)
+        rotation = np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]]) @ upright
+        scale = float((((a - ac) @ rotation.T) * centered).sum() / np.maximum(np.square(a - ac).sum(), 1e-8))
         translation = bc - ac @ rotation.T * scale
     return rotation, scale, translation

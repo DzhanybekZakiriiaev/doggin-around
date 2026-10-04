@@ -17,7 +17,7 @@ app.innerHTML = `
   <header><a class="brand" href="/">doggin<span>around</span><i>✳</i></a><span class="label">GAUSSIAN DOG STUDIO</span><span class="connection"><i></i> LOCAL SANDBOX</span></header>
   <main>
     <section class="studio">
-      <div class="scene-heading"><span class="eyebrow">01 / THE PLAYGROUND</span><h1>A little dog. A whole new dimension.</h1><p>Built from a photo. Brought to life in splats.</p></div>
+      <div class="scene-heading"><span class="eyebrow">01 / THE PLAYGROUND</span><h1>A little dog. A whole new dimension.</h1><p id="scene-intro">Built from a photo. Brought to life in splats.</p></div>
       <div id="viewport" aria-label="Interactive 3D dog viewer"></div>
       <div class="scene-footer"><span><i class="live-dot"></i> <span id="render-status">Preparing your dog</span></span><span id="fetch-status">CLICK THE FLOOR TO PLAY FETCH <b>·</b> DRAG TO ORBIT</span></div>
       <div id="notice" role="status">Loading the animated dog…</div>
@@ -55,10 +55,15 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
 renderer.setClearColor(0xe8eadf)
 viewport.append(renderer.domElement)
 const scene = new THREE.Scene()
+const cameraProfiles = {
+  standard: { position: [0, 2.65, -6.12], target: [0, 1.15, 0] },
+  tricolor: { position: [0, 2.85, -6.55], target: [0, 1.3, 0] },
+} as const
+let cameraProfile: keyof typeof cameraProfiles = "standard"
 const camera = new THREE.PerspectiveCamera(38, 1, 0.01, 100)
-camera.position.set(3.8, 3.15, -4.8)
+camera.position.set(...cameraProfiles.standard.position)
 const controls = new OrbitControls(camera, renderer.domElement)
-controls.target.set(0, 1.65, 0)
+controls.target.set(...cameraProfiles.standard.target)
 controls.enableDamping = true
 controls.minDistance = 2
 controls.maxDistance = 12
@@ -86,6 +91,27 @@ scene.add(grid)
 const dog = new Dog(renderer)
 scene.add(dog.group)
 const fetchPlay = new FetchInteraction(dog, scene, camera, viewport)
+let gazeActive = false
+let gazeHorizontal = 0
+let orbiting = false
+const gazeRight = new THREE.Vector3()
+const gazeDirection = new THREE.Vector3()
+viewport.addEventListener("pointermove", (event) => {
+  if (orbiting || event.buttons !== 0) return
+  const bounds = viewport.getBoundingClientRect()
+  gazeHorizontal = ((event.clientX - bounds.left) / bounds.width) * 2 - 1
+  gazeActive = true
+})
+viewport.addEventListener("pointerleave", () => {
+  gazeActive = false
+})
+controls.addEventListener("start", () => {
+  orbiting = true
+  gazeActive = false
+})
+controls.addEventListener("end", () => {
+  orbiting = false
+})
 const barkAudio = element<HTMLAudioElement>("bark-audio")
 let barkElapsed = 0
 let barksRemaining = 0
@@ -128,6 +154,7 @@ const models = {
     appearance: {
       kind: "smal-pets-faces",
       manifestUrl: "/models/tricolor-research/manifest.json",
+      density: 37525,
     } as DogAppearance,
   },
 }
@@ -164,6 +191,17 @@ async function loadDog(
   element("notice").textContent = "Building your dog's Gaussians…"
   try {
     await dog.loadDog(url, appearance)
+    const profile =
+      new URL(url, window.location.href).pathname === models.tricolor.url
+        ? "tricolor"
+        : "standard"
+    if (profile !== cameraProfile) {
+      camera.position.fromArray(cameraProfiles[profile].position)
+      controls.target.fromArray(cameraProfiles[profile].target)
+      controls.update()
+      controls.saveState()
+      cameraProfile = profile
+    }
     loaded = true
     dog.paused = false
     element("pause").textContent = "Pause"
@@ -175,6 +213,9 @@ async function loadDog(
       `${dog.availableActions.length} motion clip${dog.availableActions.length === 1 ? "" : "s"} · textured skin · live rig`
     element("notice").hidden = true
     element("render-status").textContent = "LIVE GAUSSIAN RENDERING"
+    element("scene-intro").textContent = dog.hasHeadLook
+      ? "Move your cursor to catch its eye. Click the floor to play fetch."
+      : "Built from a photo. Brought to life in splats."
     element("splat-count").textContent = dog.sampleCount.toLocaleString()
     element("render-detail").textContent = dog.hasFaceAppearance
       ? "Reconstructed Gaussians follow the full animated mesh, including pose corrections."
@@ -207,11 +248,15 @@ element<HTMLSelectElement>("dog-model").addEventListener(
     const selector = event.target as HTMLSelectElement
     const key = selector.value as keyof typeof models
     const model = models[key]
+    if (!model) return
     if (!(await loadDog(model.url, model.name, model.appearance))) {
       selector.value = currentModel
       return
     }
     currentModel = key
+    selector.querySelector('option[value="imported"]')?.remove()
+    const reference = document.querySelector<HTMLElement>(".source-preview")
+    if (reference) reference.hidden = false
     for (const id of ["source-original", "source-standing"]) {
       const preview = element<HTMLImageElement>(id)
       preview.src = id === "source-original" ? model.original : model.standing
@@ -219,6 +264,7 @@ element<HTMLSelectElement>("dog-model").addEventListener(
     }
     const icon = document.querySelector<HTMLImageElement>(".asset-icon")
     if (icon) {
+      icon.hidden = false
       icon.src = model.original
       icon.alt = model.alt
     }
@@ -305,7 +351,17 @@ element<HTMLInputElement>("model-upload").addEventListener(
     if (!file) return
     const url = URL.createObjectURL(file)
     const previous = currentUrl
-    await loadDog(url, file.name)
+    if (await loadDog(url, file.name)) {
+      const selector = element<HTMLSelectElement>("dog-model")
+      selector.querySelector('option[value="imported"]')?.remove()
+      selector.add(new Option(file.name, "imported"))
+      selector.value = "imported"
+      currentModel = "imported"
+      const reference = document.querySelector<HTMLElement>(".source-preview")
+      if (reference) reference.hidden = true
+      const icon = document.querySelector<HTMLImageElement>(".asset-icon")
+      if (icon) icon.hidden = true
+    }
     URL.revokeObjectURL(url)
     currentUrl = previous
     element<HTMLInputElement>("model-upload").value = ""
@@ -323,7 +379,27 @@ renderer.setAnimationLoop(() => {
   const now = performance.now()
   const delta = (now - lastFrame) / 1000
   fetchPlay.update(delta)
+  if (
+    loaded &&
+    !loading &&
+    dog.hasHeadLook &&
+    fetchPlay.state === "idle" &&
+    dog.action === "idle"
+  ) {
+    let heading = 0
+    if (gazeActive && !orbiting) {
+      gazeDirection.copy(camera.position).sub(dog.group.position)
+      const distance = Math.hypot(gazeDirection.x, gazeDirection.z)
+      gazeRight.setFromMatrixColumn(camera.matrixWorld, 0)
+      gazeDirection.addScaledVector(gazeRight, gazeHorizontal * distance * 0.65)
+      const difference =
+        Math.atan2(-gazeDirection.x, -gazeDirection.z) - dog.group.rotation.y
+      heading = Math.atan2(Math.sin(difference), Math.cos(difference))
+    }
+    dog.lookToward(heading)
+  }
   dog.update(delta)
+  fetchPlay.updateBallPosition()
   if (dog.action === "bark" && !dog.paused && barksRemaining > 0) {
     barkElapsed += Math.min(delta, 0.1) * dog.speed
     if (barkElapsed >= 0.8) {
@@ -335,6 +411,16 @@ renderer.setAnimationLoop(() => {
   }
   lastFrame = now
   controls.update()
+  const targetFov = dog.action === "backflip" ? 68 : 38
+  if (Math.abs(camera.fov - targetFov) > 0.01) {
+    camera.fov = THREE.MathUtils.damp(
+      camera.fov,
+      targetFov,
+      12,
+      Math.min(delta, 0.1),
+    )
+    camera.updateProjectionMatrix()
+  }
   renderer.render(scene, camera)
   if (lastFetchState !== fetchPlay.state) {
     if (fetchPlay.state !== "idle") stopBark()
@@ -398,5 +484,7 @@ window.addEventListener("pagehide", () => {
   renderer.dispose()
 })
 // Expose the same controller for integration and browser verification.
-Object.assign(window, { dogSandbox: { dog, loadDog, renderer, fetchPlay } })
+Object.assign(window, {
+  dogSandbox: { dog, loadDog, renderer, fetchPlay, camera },
+})
 void loadDog(currentUrl)

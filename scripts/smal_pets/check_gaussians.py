@@ -4,7 +4,7 @@ import json
 import tempfile
 from pathlib import Path
 import numpy as np
-from gaussians import progressive_order, read_ply, write_ply
+from gaussians import normalize_proxy, progressive_order, read_ply, write_ply
 
 
 def main():
@@ -19,6 +19,10 @@ def main():
     assert len(np.unique(order)) == count
     assert len(np.unique(clusters[order[:32]])) == 3
     sorted_parameters = {name: value[order] for name, value in parameters.items()}
+    normalized, vertices, _ = normalize_proxy(parameters, points.astype(np.float64), "z")
+    assert all(value.dtype == np.float32 for value in normalized.values())
+    assert vertices.dtype == np.float32
+    assert np.isclose(np.ptp(vertices, axis=0).max(), 1)
     with tempfile.TemporaryDirectory() as directory:
         path = Path(directory) / "roundtrip.ply"
         write_ply(path, sorted_parameters)
@@ -28,7 +32,7 @@ def main():
         for prefix in (500, 1000, 1500):
             write_ply(path, {name: value[:prefix] for name, value in sorted_parameters.items()})
             assert np.array_equal(read_ply(path)["means"], restored["means"][:prefix])
-    print(json.dumps({"status": "passed", "roundtrip_errors": errors, "checks": ["spatial_coverage", "determinism", "all_rows_retained", "identical_prefixes"]}))
+    print(json.dumps({"status": "passed", "roundtrip_errors": errors, "checks": ["spatial_coverage", "determinism", "all_rows_retained", "identical_prefixes", "float64_mesh_to_float32_gaussians"]}))
 
 
 if __name__ == "__main__":

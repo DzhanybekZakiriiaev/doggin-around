@@ -7,6 +7,7 @@ import {
 import * as THREE from "three"
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js"
 import { type FaceAppearance, loadFaceAppearance } from "./faceAppearance"
+import { PawContacts } from "./pawContacts"
 import { loadRiggedAppearance } from "./riggedAppearance"
 import { sampleSurface, skinMatrix } from "./sampling"
 
@@ -16,11 +17,13 @@ export const DOG_ACTIONS = [
   { name: "run", label: "Run", icon: "»", playback: "loop" },
   { name: "sit", label: "Sit", icon: "⌄", playback: "hold" },
   { name: "jump", label: "Jump", icon: "↑", playback: "once" },
+  { name: "backflip", label: "Backflip", icon: "↶", playback: "once" },
   { name: "bark", label: "Bark", icon: "◖", playback: "once" },
   { name: "paw", label: "Paw", icon: "✧", playback: "once" },
   { name: "spin", label: "Spin", icon: "⟳", playback: "once" },
   { name: "playbow", label: "Play bow", icon: "⌁", playback: "once" },
   { name: "sniff", label: "Sniff", icon: "⋯", playback: "loop" },
+  { name: "dig", label: "Dig", icon: "⌵", playback: "loop" },
   { name: "wag", label: "Wag", icon: "∿", playback: "loop" },
 ] as const
 
@@ -53,6 +56,7 @@ export class Dog {
   private helpers: THREE.SkeletonHelper[] = []
   private active?: THREE.AnimationAction
   private transition?: THREE.AnimationAction
+  private transitionIsPose = false
   private transitionTime = 0
   private returnToIdle = false
   private currentActionRate = 1
@@ -63,7 +67,19 @@ export class Dog {
   private faceAppearance?: FaceAppearance
   private faceTransition?: Float32Array
   private appearance?: DogAppearance
-  private readonly mouthOffset = new THREE.Vector3(0, -0.02, -0.03)
+  private lookTarget = 0
+  private lookAngle = 0
+  private lookBones: Array<{
+    bone: THREE.Object3D
+    weight: number
+    base: THREE.Quaternion
+    position: THREE.Vector3
+  }> = []
+  private lookApplied = false
+  private readonly lookRotation = new THREE.Quaternion()
+  private readonly lookAxis = new THREE.Vector3(0, 1, 0)
+  private pawContacts?: PawContacts
+  private readonly mouthOffset = new THREE.Vector3(0, -0.04, -0.1)
   private readonly onFinished = (event: {
     action: THREE.AnimationAction
   }): void => {
@@ -111,6 +127,35 @@ export class Dog {
     return this.group.localToWorld(target.set(0, 1.15, -0.72))
   }
 
+  sampleActionMouthOffset(
+    action: DogAction,
+    time: number,
+    target: THREE.Vector3,
+  ): THREE.Vector3 | undefined {
+    if (this.faceAppearance?.clips.has(action)) {
+      this.group.updateWorldMatrix(true, true)
+      this.faceAppearance.sampleMouthPosition(action, time, target)
+      return this.group.worldToLocal(target)
+    }
+    const clip = this.actions.get(action)?.getClip()
+    if (!this.hasHeadLook || !this.root || !clip) return undefined
+    // Sample a separate pose so planning a pickup never moves the live dog.
+    const pose = this.root.clone(true)
+    const mouth = pose.getObjectByName("joint_20")
+    if (!mouth) return undefined
+    const mixer = new THREE.AnimationMixer(pose)
+    const sample = mixer.clipAction(clip)
+    sample.setLoop(THREE.LoopOnce, 1)
+    sample.clampWhenFinished = true
+    sample.play()
+    mixer.setTime(time)
+    pose.updateMatrixWorld(true)
+    mouth.localToWorld(target.copy(this.mouthOffset))
+    mixer.stopAllAction()
+    mixer.uncacheRoot(pose)
+    return target
+  }
+
   async loadDog(assetUrl: string, appearance?: DogAppearance): Promise<void> {
     const version = ++this.loadVersion
     const candidate = new Dog(this.renderer)
@@ -130,16 +175,23 @@ export class Dog {
       this.helpers = candidate.helpers
       this.active = candidate.active
       this.transition = candidate.transition
+      this.transitionIsPose = candidate.transitionIsPose
       this.transitionTime = candidate.transitionTime
       this.faceTransition = candidate.faceTransition
       this.returnToIdle = candidate.returnToIdle
       this.capturedAppearance = candidate.capturedAppearance
       this.faceAppearance = candidate.faceAppearance
       this.appearance = appearance
+      this.lookBones = candidate.lookBones
       this.density = candidate.density
       this.sampleCount = candidate.sampleCount
       this.action = "idle"
       if (this.root) this.group.add(this.root)
+      this.group.updateMatrixWorld(true)
+      this.pawContacts =
+        this.capturedAppearance && !this.faceAppearance
+          ? new PawContacts(this.group)
+          : undefined
       for (const helper of this.helpers) this.group.add(helper)
       this.mixer?.removeEventListener("finished", candidate.onFinished)
       this.mixer?.addEventListener("finished", this.onFinished)
@@ -200,9 +252,22 @@ export class Dog {
         this.density,
       )
       if (this.renderer) this.faceAppearance.checkTextureSize(this.renderer)
-      for (const { name } of DOG_ACTIONS)
-        if (clips.has(name) && !this.faceAppearance.clips.has(name))
-          throw new Error(`Missing baked motion for ${name}`)
+      for (const { name } of DOG_ACTIONS) {
+        const clip = clips.get(name)
+        if (!clip) continue
+        const baked = this.faceAppearance.clips.get(name)
+        if (!baked) throw new Error(`Missing baked motion for ${name}`)
+        const tolerance =
+          1e-5 +
+          1e-6 * Math.max(Math.abs(clip.duration), Math.abs(baked.duration))
+        if (
+          !Number.isFinite(clip.duration) ||
+          Math.abs(clip.duration - baked.duration) > tolerance
+        )
+          throw new Error(
+            `Baked animation duration does not match GLB clip: ${name}`,
+          )
+      }
     }
     this.density = Math.min(this.density, this.maxDensity)
     this.group.add(this.root)
@@ -217,6 +282,22 @@ export class Dog {
       -center.z * scale,
     )
     this.root.updateMatrixWorld(true)
+    if (capturedAppearance && !appearance) {
+      for (const [name, weight] of [
+        ["joint_22", 0.7],
+        ["joint_14", 0.3],
+        ["joint_21", 0.3],
+      ] as const) {
+        const bone = this.root.getObjectByName(name)
+        if (bone)
+          this.lookBones.push({
+            bone,
+            weight,
+            base: bone.quaternion.clone(),
+            position: bone.position.clone(),
+          })
+      }
+    }
     this.mixer = new THREE.AnimationMixer(this.root)
     this.mixer.addEventListener("finished", this.onFinished)
     for (const { name, playback } of DOG_ACTIONS) {
@@ -415,6 +496,31 @@ export class Dog {
   playAction(name: DogAction): void {
     const next = this.actions.get(name)
     if (!next || !this.mixer || !this.root) return
+    this.removeLook()
+    this.pawContacts?.restore()
+    if (
+      this.active &&
+      this.active !== next &&
+      !this.active.paused &&
+      !this.paused &&
+      !this.transition &&
+      !this.faceAppearance
+    ) {
+      // Keep the outgoing stride moving through an uninterrupted blend.
+      this.transition = this.active
+      this.transitionIsPose = false
+      this.transitionTime = 0
+      this.returnToIdle = false
+      next
+        .reset()
+        .setEffectiveTimeScale(this.currentActionRate)
+        .setEffectiveWeight(0)
+        .play()
+      this.active = next
+      this.action = name
+      this.mixer.update(0)
+      return
+    }
     if (this.faceAppearance && this.active)
       this.faceTransition = this.faceAppearance.vertexPositions.slice()
     // Keep the displayed pose when a blend is interrupted.
@@ -457,6 +563,7 @@ export class Dog {
       ])
       this.transition = this.mixer.clipAction(pose).play()
       this.transition.paused = true
+      this.transitionIsPose = true
     }
     next
       .reset()
@@ -473,6 +580,25 @@ export class Dog {
       throw new RangeError("Action rate must be positive and finite")
     this.currentActionRate = rate
     this.active?.setEffectiveTimeScale(rate)
+  }
+
+  lookToward(headingOffset: number): void {
+    this.lookTarget = Number.isFinite(headingOffset)
+      ? THREE.MathUtils.clamp(headingOffset, -0.5, 0.5)
+      : 0
+  }
+
+  get hasHeadLook(): boolean {
+    return this.lookBones.length > 0
+  }
+
+  private removeLook(): void {
+    if (!this.lookApplied) return
+    for (const { bone, base, position } of this.lookBones) {
+      bone.quaternion.copy(base)
+      bone.position.copy(position)
+    }
+    this.lookApplied = false
   }
 
   setView(view: DogView): void {
@@ -496,6 +622,8 @@ export class Dog {
 
   update(delta: number): void {
     const step = this.paused ? 0 : Math.min(delta, 0.1) * this.speed
+    this.removeLook()
+    this.pawContacts?.restore()
     if (this.transition) {
       this.transitionTime += step
       const progress = Math.min(this.transitionTime / 0.3, 1)
@@ -518,7 +646,41 @@ export class Dog {
     }
     if (this.returnToIdle) this.playAction("idle")
     else if (this.transitionTime >= 0.3) this.releaseTransition()
+    this.lookAngle = THREE.MathUtils.damp(
+      this.lookAngle,
+      this.lookTarget,
+      8,
+      step,
+    )
+    const head = this.lookBones.find(({ bone }) => bone.name === "joint_14")
+    for (const { bone, weight, base, position } of this.lookBones) {
+      base.copy(bone.quaternion)
+      position.copy(bone.position)
+      if (head && bone.name === "joint_21") {
+        // The sibling jaw must turn around the head's pivot.
+        this.lookRotation
+          .copy(head.base)
+          .invert()
+          .premultiply(head.bone.quaternion)
+        bone.quaternion.premultiply(this.lookRotation)
+        bone.position
+          .sub(head.bone.position)
+          .applyQuaternion(this.lookRotation)
+          .add(head.bone.position)
+      } else {
+        this.lookRotation.setFromAxisAngle(
+          this.lookAxis,
+          this.lookAngle * weight,
+        )
+        bone.quaternion.multiply(this.lookRotation)
+      }
+    }
+    this.lookApplied = true
     this.group.updateMatrixWorld(true)
+    this.pawContacts?.update(
+      step,
+      this.action === "walk" || this.action === "run",
+    )
     for (const { source, skinning, splats } of this.skins) {
       splats.matrix.copy(source.matrix)
       for (let i = 0; i < source.skeleton.bones.length; i++)
@@ -530,8 +692,10 @@ export class Dog {
   private releaseTransition(): void {
     if (!this.transition) return
     this.transition.stop()
-    this.mixer?.uncacheAction(this.transition.getClip())
+    if (this.transitionIsPose)
+      this.mixer?.uncacheAction(this.transition.getClip())
     this.transition = undefined
+    this.transitionIsPose = false
   }
 
   private releaseSkin({ splats, skinning }: Skin): void {
@@ -566,6 +730,12 @@ export class Dog {
   }
 
   private clear(): void {
+    this.removeLook()
+    this.pawContacts?.restore()
+    this.pawContacts = undefined
+    this.lookBones = []
+    this.lookAngle = 0
+    this.lookTarget = 0
     this.faceAppearance?.dispose()
     this.faceAppearance = undefined
     this.faceTransition = undefined

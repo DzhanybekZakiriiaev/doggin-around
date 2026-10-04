@@ -27,9 +27,9 @@ test("the default dog exposes all actions, barks, fetches at a run, and fits its
   await expect(page.locator("#splat-count")).toHaveText("50,000")
   await expect(page.locator("#density")).toBeEnabled()
   await page.evaluate(() => document.fonts.ready)
-  await expect(page.locator("[data-action]:visible")).toHaveCount(11)
+  await expect(page.locator("[data-action]:visible")).toHaveCount(13)
   await expect(page.locator("#asset-detail")).toHaveText(
-    "11 motion clips · textured skin · live rig",
+    "13 motion clips · textured skin · live rig",
   )
   const audio = page.locator("#bark-audio")
   await audio.evaluate((element) => {

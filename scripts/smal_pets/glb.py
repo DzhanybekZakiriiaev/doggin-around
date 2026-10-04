@@ -4,7 +4,59 @@ import json
 import struct
 from pathlib import Path
 import numpy as np
+import torch
 from scipy.spatial.transform import Rotation
+
+
+def read_glb(path):
+    data = Path(path).read_bytes()
+    json_length = struct.unpack_from("<I", data, 12)[0]
+    document = json.loads(data[20:20 + json_length])
+    binary = data[20 + json_length + 8:]
+
+    def accessor(index):
+        item = document["accessors"][index]
+        view = document["bufferViews"][item["bufferView"]]
+        width = {"SCALAR": 1, "VEC3": 3, "VEC4": 4, "MAT4": 16}[item["type"]]
+        offset = view.get("byteOffset", 0) + item.get("byteOffset", 0)
+        dtype = {5126: "<f4", 5125: "<u4", 5123: "<u2"}[item["componentType"]]
+        return np.frombuffer(binary, dtype=dtype, count=item["count"] * width, offset=offset).reshape(-1, width).copy()
+    return document, accessor
+
+
+def load_baked_clips(path, pet):
+    document, accessor = read_glb(path)
+    primitive = document["meshes"][0]["primitives"][0]
+    rest = pet().detach().cpu().numpy()
+    if np.abs(accessor(primitive["attributes"]["POSITION"]) - rest).max() > 2e-5:
+        raise RuntimeError("Baked skeleton rest mesh differs from the final fit")
+    if not np.array_equal(accessor(primitive["indices"]).reshape(-1, 3), pet.faces.cpu().numpy()):
+        raise RuntimeError("Baked skeleton topology differs from the final fit")
+    pet.rest_joint_translations = np.asarray([node["translation"] for node in document["nodes"][1:36]], dtype=np.float32)
+    pet.rest_joint_quaternions = np.asarray([node["rotation"] for node in document["nodes"][1:36]], dtype=np.float32)
+    alignment = pet.alignment.cpu().numpy()
+    device = pet.betas.device
+    check_path = Path(path).with_name("bake-check.json")
+    checks = json.loads(check_path.read_text()) if check_path.exists() else {}
+    clips = {}
+    for animation in document["animations"]:
+        tracks = {}
+        for channel in animation["channels"]:
+            sampler = animation["samplers"][channel["sampler"]]
+            times = accessor(sampler["input"])[:, 0]
+            joint = channel["target"]["node"] - 1
+            tracks[(joint, channel["target"]["path"])] = accessor(sampler["output"])
+        translations = np.stack([tracks[(joint, "translation")] for joint in range(35)], axis=1)
+        quaternions = np.stack([tracks[(joint, "rotation")] for joint in range(35)], axis=1)
+        matrices = Rotation.from_quat(quaternions.reshape(-1, 4)).as_matrix().reshape(-1, 35, 3, 3)
+        matrices[:, 0] = alignment.T @ matrices[:, 0]
+        poses = Rotation.from_matrix(matrices.reshape(-1, 3, 3)).as_rotvec().reshape(-1, 35, 3)
+        offsets = translations[:, 0] - pet.rest_joint_translations[0]
+        with torch.no_grad():
+            positions = np.stack([pet(torch.as_tensor(pose, device=device, dtype=torch.float32)[None], torch.as_tensor(offset, device=device, dtype=torch.float32)).cpu().numpy() for pose, offset in zip(poses, offsets)]).astype(np.float32)
+        clips[animation["name"]] = {"duration": float(times[-1]), "times": times, "positions": positions, "jointTranslations": translations, "jointQuaternions": quaternions, "minimumPawHeight": float(positions[:, [1330, 3282, 1521, 3473], 1].min())}
+        clips[animation["name"]]["maximumSoleOrientationErrorDegrees"] = checks.get("maximum_sole_orientation_error_degrees", {}).get(animation["name"], 0)
+    return clips
 
 
 def write_animated_glb(path, rest, faces, clips, pet):

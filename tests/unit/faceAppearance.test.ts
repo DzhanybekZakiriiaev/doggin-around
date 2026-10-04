@@ -2,6 +2,7 @@ import { createHash } from "node:crypto"
 import { ExtSplats } from "@sparkjsdev/spark"
 import * as THREE from "three"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { Dog } from "../../src/dog"
 import {
   FaceAppearance,
   type FaceAppearanceManifest,
@@ -10,6 +11,7 @@ import {
   readFaceFloats,
   validateBakedClip,
   validateFaceBinding,
+  validateRestTransforms,
 } from "../../src/faceAppearance"
 
 function manifest(): FaceAppearanceManifest {
@@ -62,6 +64,18 @@ describe("face appearance asset validation", () => {
   it("accepts the explicit mesh-local coordinate contract", () => {
     const value = manifest()
     expect(parseFaceManifest(value)).toBe(value)
+    expect(
+      parseFaceManifest({
+        ...value,
+        files: { ...value.files, restTransforms: "rest-transforms.f32" },
+      }).files.restTransforms,
+    ).toBe("rest-transforms.f32")
+    expect(() =>
+      parseFaceManifest({
+        ...value,
+        files: { ...value.files, restTransforms: "" },
+      }),
+    ).toThrow("rest transform")
   })
 
   it("rejects incompatible coordinate spaces and binding widths", () => {
@@ -140,6 +154,22 @@ describe("face appearance asset validation", () => {
     expect(() =>
       validateBakedClip({ ...clip, positions: new Float32Array(9) }, 3),
     ).toThrow("positions")
+  })
+
+  it("requires complete finite rest quaternions and positive scales", () => {
+    const transforms = new Float32Array([
+      0.2, 0.3, 0.4, 0.8, 0.02, 0.03, 0.04, 0,
+    ])
+    expect(() => validateRestTransforms(transforms, 1)).not.toThrow()
+    expect(() => validateRestTransforms(transforms, 2)).toThrow("size")
+    const zeroRotation = transforms.slice()
+    zeroRotation.fill(0, 0, 4)
+    expect(() => validateRestTransforms(zeroRotation, 1)).toThrow("transform")
+    for (const bad of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      const invalid = transforms.slice()
+      invalid[5] = bad
+      expect(() => validateRestTransforms(invalid, 1)).toThrow("transform")
+    }
   })
 
   it("resolves every binary path relative to the manifest and rejects topology drift before loading a PLY", async () => {
@@ -274,6 +304,34 @@ describe("face appearance lifecycle", () => {
         .getMouthPosition(new THREE.Vector3())
         .distanceTo(new THREE.Vector3(1.3, 3.5, 3)),
     ).toBeLessThan(1e-7)
+    const displayed = appearance.vertexPositions.slice()
+    const existingSample = sample.slice()
+    expect(
+      appearance
+        .sampleMouthPosition("idle", 1, new THREE.Vector3())
+        .distanceTo(new THREE.Vector3(1.3, 4.5, 3)),
+    ).toBeLessThan(1e-7)
+    expect(appearance.vertexPositions).toEqual(displayed)
+    expect(sample).toEqual(existingSample)
+    expect(positionAttribute.version).toBe(version)
+    const dog = new Dog()
+    Object.assign(dog, { faceAppearance: appearance })
+    dog.group.add(appearance.mesh)
+    dog.group.position.set(4, 1, -2)
+    dog.group.rotation.y = 0.7
+    dog.action = "walk"
+    const offset = dog.sampleActionMouthOffset("idle", 1, new THREE.Vector3())
+    expect(offset?.distanceTo(new THREE.Vector3(1.3, 4.5, 3))).toBeLessThan(
+      1e-7,
+    )
+    expect(dog.action).toBe("walk")
+    expect(appearance.vertexPositions).toEqual(displayed)
+    expect(
+      dog.sampleActionMouthOffset("sniff", 0.85, new THREE.Vector3()),
+    ).toBeUndefined()
+    expect(
+      new Dog().sampleActionMouthOffset("sniff", 0.85, new THREE.Vector3()),
+    ).toBeUndefined()
     expect(appearance.maxDensity).toBe(1)
     expect(appearance.manifestUrl).toBe("https://demo.test/manifest.json")
     const disposeMesh = vi.spyOn(appearance.mesh.geometry, "dispose")

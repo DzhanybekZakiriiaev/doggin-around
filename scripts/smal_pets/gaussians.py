@@ -57,9 +57,9 @@ def normalize_proxy(parameters, vertices, up="y"):
     center = (transformed.max(axis=0) + transformed.min(axis=0)) / 2
     scale = 1 / max(np.max(np.ptp(transformed, axis=0)), 1e-8)
     result = {name: value.copy() for name, value in parameters.items()}
-    result["means"] = (parameters["means"] @ rotation.T - center) * scale
+    result["means"] = ((parameters["means"] @ rotation.T - center) * scale).astype(np.float32)
     result["log_scales"] += np.log(scale)
     from scipy.spatial.transform import Rotation
     source = Rotation.from_quat(parameters["quats"][:, [1, 2, 3, 0]]).as_matrix()
     result["quats"] = Rotation.from_matrix(rotation @ source).as_quat()[:, [3, 0, 1, 2]].astype(np.float32)
-    return result, (transformed - center) * scale, {"rotation": rotation.tolist(), "center": center.tolist(), "scale": float(scale)}
+    return result, ((transformed - center) * scale).astype(np.float32), {"rotation": rotation.tolist(), "center": center.tolist(), "scale": float(scale)}

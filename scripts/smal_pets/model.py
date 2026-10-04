@@ -87,10 +87,10 @@ class PetModel(nn.Module):
             target = self.edge_pairs[:, 1 - side]
             sums.index_add_(0, source, vertices[target])
             degrees.index_add_(0, source, torch.ones(len(source), device=vertices.device))
-        lap = (vertices - sums / degrees.clamp_min(1)[:, None]).square().mean()
+        lap = torch.linalg.vector_norm(vertices - sums / degrees.clamp_min(1)[:, None], dim=-1).mean()
         joints = list(range(7, 15)) + list(range(17, 25)) + [32]
-        pose = (self.pose[:, joints] - self.initial_pose[:, joints]).square().mean()
-        offsets = self.offsets.square().mean()
+        pose = (self.pose[:, joints] - self.initial_pose[:, joints]).square().sum()
+        offsets = self.offsets.square().sum()
         return {"edge": edge_loss, "laplacian": lap, "pose": pose, "offsets": offsets}
 
     def optimizer_groups(self, factor=1.0):
