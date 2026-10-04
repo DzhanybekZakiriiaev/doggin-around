@@ -298,11 +298,26 @@
   background: linear-gradient(90deg, var(--blue) calc(var(--fill) * 100%), #fff calc(var(--fill) * 100%));
 }
 
-/* 3-5. Rendered from the real model: sprite strips stepped through */
+/* 3-5. The game's own dog, drawn live by the game over .pl-live (left of the stage); until he's loaded,
+   sprite strips rendered from his model play there instead. */
+.pl-live {
+  position: absolute;
+  z-index: 2;
+  left: 28px;
+  top: 78px;
+  bottom: 26px;
+  width: calc(60% - 28px);
+  pointer-events: none;
+}
+
+.pipeline-stage--live .pl-sprite {
+  visibility: hidden;
+}
+
 .pl-turn,
 .pl-run {
-  grid-template-columns: minmax(0, auto) minmax(0, 260px);
-  gap: clamp(16px, 3vw, 48px);
+  grid-template-columns: 60% minmax(0, 1fr);
+  gap: clamp(16px, 3vw, 40px);
 }
 
 .pl-sprite {
@@ -369,11 +384,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-.pl-run {
-  grid-template-columns: 1fr;
-  grid-template-rows: minmax(0, 1fr) auto;
-}
-
 .pl-run .pl-sprite {
   position: relative;
   z-index: 1;
@@ -382,7 +392,7 @@
 
 .pl-speed {
   position: absolute;
-  inset: 18% 8% 30%;
+  inset: 22% 42% 26% 4%;
   background: repeating-linear-gradient(180deg, transparent 0 22px, rgba(10, 11, 15, 0.22) 22px 25px, transparent 25px 46px);
   mask-image: linear-gradient(90deg, transparent, black 30%, black 55%, transparent);
   animation: pl-speed 0.35s linear infinite;
@@ -398,12 +408,13 @@
 }
 
 .pl-clips {
+  max-width: 300px;
   margin: 0;
   padding: 0;
   list-style: none;
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 8px;
 }
 
@@ -498,15 +509,15 @@
   padding: 0 4%;
   list-style: none;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, 1fr);
 }
 
 .pipeline-timeline::before,
 .pipeline-timeline__fill {
   content: "";
   position: absolute;
-  left: 14%;
-  right: 14%;
+  left: 12%;
+  right: 12%;
   top: 19px;
   height: 6px;
   background: rgba(10, 11, 15, 0.15);

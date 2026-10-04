@@ -1,26 +1,29 @@
 import { type CSSProperties, useEffect, useRef, useState } from "react";
+import type { Game } from "./game/game";
 import "./pipeline.css";
 
 // Between the upload and the comic: bringing Biscuit to life, played as a comic page in 23 seconds.
 // 1. Gemini reads the page, boxes the characters and lifts the hero out of panel 1;
 // 2. paints him from every side as a wireframe (the 3D model taking shape);
-// 3. the real model in X-ray with its rig lit up inside; 4. its mesh; 5. the mesh running on the rig.
-// The stills are Gemini's (npm run pipeline-art); the turntables and the run are rendered from the real
-// dog, public/models/dog-animated.glb (tools/pipeline-frames.html in dev). The timings are fixed and the
-// figures in the log are the real model's.
+// then the game's own Biscuit, drawn live by the game on the stage:
+// 3. his mesh in X-ray with the rig lit up inside; 4. the mesh; 5. the Gaussian splats applied over it;
+// 6. the splat dog walking on the rig, then running (his own clips).
+// The stills are Gemini's (npm run pipeline-art); strips rendered from his model (tools/pipeline-frames.html)
+// stand in until the game has him loaded. The timings are fixed and the figures in the log are the real
+// model's.
 
 export const PIPELINE_SECONDS = 23;
 
 type Comic = { url: string; name: string; isImage: boolean };
 
 const STEPS = [
-  { label: "READING THE COMIC", by: "GEMINI 3 PRO", start: 0 },
-  { label: "CONSTRUCTING A 3D MODEL", by: "GEMINI · MULTI-VIEW", start: 4.6 },
-  { label: "RIGGING THE SKELETON", by: "41 JOINTS", start: 9.2 },
-  { label: "EXTRACTING THE MESH", by: "21,856 VERTICES", start: 13.8 },
-  { label: "APPLYING THE ANIMATIONS", by: "11 CLIPS", start: 18.4 },
+  { short: "READ", label: "READING THE COMIC", by: "GEMINI 3 PRO", start: 0 },
+  { short: "MODEL", label: "CONSTRUCTING A 3D MODEL", by: "GEMINI · MULTI-VIEW", start: 3.8 },
+  { short: "RIG", label: "RIGGING THE SKELETON", by: "41 JOINTS", start: 7.6 },
+  { short: "MESH", label: "EXTRACTING THE MESH", by: "21,858 VERTICES", start: 11.4 },
+  { short: "SPLATS", label: "APPLYING THE SPLATS", by: "50,000 GAUSSIANS", start: 15.2 },
+  { short: "ANIMATE", label: "APPLYING THE ANIMATIONS", by: "13 CLIPS", start: 19.0 },
 ];
-const SHORT = ["READ", "MODEL", "RIG", "MESH", "ANIMATE"];
 
 /** The characters on the Storm Night page (fractions of the page: x, y, width, height). */
 const FOUND: { label: string; box: [number, number, number, number] }[] = [
@@ -38,12 +41,26 @@ const VIEWS = [
   { src: "/pipeline/view-side.png", label: "SIDE" },
   { src: "/pipeline/view-back.png", label: "BACK" },
 ];
-const CLIPS = ["idle", "sit", "jump", "bark", "paw", "spin", "playbow", "sniff", "wag", "walk", "run"];
+const CLIPS = ["idle", "walk", "run", "sit", "jump", "backflip", "bark", "paw", "spin", "playbow", "sniff", "dig", "wag"];
+
+// Steps 3-6 live: the game's own Biscuit on the menu stand (the same mesh, splats, rig and clips as in the
+// game), drawn by the game over .pl-live.
+const SIDE_ON = -Math.PI / 2 - 0.35; // facing right, a little towards us
+const TURN = 0.7; // radians a second on the turntable
+const LIVE = {
+  rig: { view: "mesh", xray: true, rig: true, action: "idle", still: true, turnRate: TURN },
+  mesh: { view: "mesh", rig: false, action: "idle", still: true, turnRate: TURN },
+  splats: { view: "splats", rig: false, action: "idle", still: true, turnRate: TURN },
+  walk: { view: "splats", rig: true, action: "walk", heading: SIDE_ON },
+  run: { view: "splats", rig: false, action: "run", heading: SIDE_ON },
+} as const;
+const SPLATS_ON = 16.2; // into step 5: the bare mesh for a moment, then the splats go on
+const RUN_FROM = 21.0; // into step 6: walking on the rig, then running
 
 const count = (t: number, from: number, to: number, total: number) =>
   Math.round(Math.min(1, Math.max(0, (t - from) / (to - from))) * total).toLocaleString("en-US");
 
-export function Pipeline({ comic, onDone }: { comic: Comic | null; onDone: () => void }) {
+export function Pipeline({ comic, game, onDone }: { comic: Comic | null; game: Game | null; onDone: () => void }) {
   const [t, setT] = useState(0);
   const [pageSize, setPageSize] = useState("1800 × 2900");
   const onDoneRef = useRef(onDone);
@@ -70,31 +87,64 @@ export function Pipeline({ comic, onDone }: { comic: Comic | null; onDone: () =>
     return () => window.clearInterval(timer);
   }, []);
 
-  // Their own page if it's a picture; the boxes are measured on Storm Night's, so they only show on that one.
-  const page = comic?.isImage ? comic.url : STORM_NIGHT;
-  const known = page === STORM_NIGHT || /storm-night/i.test(comic?.name ?? "");
   let step = 0;
   STEPS.forEach((candidate, i) => {
     if (t >= candidate.start) step = i;
   });
   const phase = (i: number) => (i === step ? "is-on" : i < step ? "is-past" : "is-next");
 
+  // The live dog for steps 3-6, once the game has him loaded.
+  const liveBox = useRef<HTMLDivElement>(null);
+  const [dogReady, setDogReady] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    game?.biscuit.ready.then(() => alive && setDogReady(true), () => {});
+    return () => {
+      alive = false;
+    };
+  }, [game]);
+  const look =
+    t >= RUN_FROM ? "run"
+    : t >= STEPS[5].start ? "walk"
+    : t >= SPLATS_ON ? "splats"
+    : t >= STEPS[3].start ? "mesh"
+    : t >= STEPS[2].start ? "rig"
+    : null;
+  const live = !!game && dogReady && look !== null;
+  useEffect(() => {
+    if (!game || !dogReady || !look || !liveBox.current) return;
+    if (game.mode !== "showcase") game.showcase(liveBox.current);
+    game.biscuit.present(LIVE[look]);
+  }, [game, dogReady, look]);
+  // Leaving: the comic page puts him back on his own stand.
+  useEffect(
+    () => () => {
+      if (game?.mode === "showcase") game.hide();
+    },
+    [game],
+  );
+
+  // Their own page if it's a picture; the boxes are measured on Storm Night's, so they only show on that one.
+  const page = comic?.isImage ? comic.url : STORM_NIGHT;
+  const known = page === STORM_NIGHT || /storm-night/i.test(comic?.name ?? "");
+
   const log: [number, string][] = [
     [0.3, `gemini-3-pro · reading page 1 · ${pageSize}`],
-    [1.4, known ? "5 characters · dog ×3, person ×2" : "characters found"],
-    [2.5, "the hero: small white dog, daisy bandana"],
-    [3.5, "lifting him out of panel 1"],
-    [4.9, "multi-view · front, ¾, side, back"],
-    [6.5, "reconstructing · 50,000 gaussians"],
-    [8.4, "4 views agree · model ready"],
-    [9.5, "fitting the rig · 41 joints"],
-    [11.3, "skin weights · 4 bones per vertex"],
-    [14.1, "extracting the mesh · 21,856 vertices"],
-    [15.6, "28,675 triangles · texture 1024²"],
-    [17.1, "inking the outline"],
-    [18.7, "retargeting 11 clips onto the rig"],
-    [20.3, "IK paws · walk, trot, run"],
-    [22.2, "done · Biscuit is ready"],
+    [1.2, known ? "5 characters · dog ×3, person ×2" : "characters found"],
+    [2.1, "the hero: small white dog, daisy bandana"],
+    [2.9, "lifting him out of panel 1"],
+    [4.0, "multi-view · front, ¾, side, back"],
+    [5.6, "fitting one shape to all four views"],
+    [7.0, "4 views agree · model ready"],
+    [7.8, "fitting the rig · 41 joints"],
+    [9.6, "skin weights · 4 bones per vertex"],
+    [11.6, "extracting the mesh · 21,858 vertices"],
+    [13.2, "28,675 triangles · texture 1024²"],
+    [15.4, "baking 50,000 gaussians onto the mesh"],
+    [17.3, "skinning them to the rig"],
+    [19.2, "retargeting 13 clips · walk"],
+    [21.1, "IK paws · run"],
+    [22.3, "done · Biscuit is ready"],
   ];
 
   return (
@@ -104,15 +154,21 @@ export function Pipeline({ comic, onDone }: { comic: Comic | null; onDone: () =>
         <h1>BRINGING BISCUIT TO LIFE</h1>
       </header>
 
-      <div className="pipeline-stage">
+      <div className={`pipeline-stage ${live ? "pipeline-stage--live" : ""}`}>
+        <div className="pl-live" ref={liveBox} />
         <div className="pipeline-caption" key={step}>
-          <small>STEP {step + 1} / 5 · {STEPS[step].by}</small>
-          <strong>{STEPS[step].label}{t < PIPELINE_SECONDS - 0.4 ? "…" : ""}</strong>
+          <small>
+            STEP {step + 1} / {STEPS.length} · {STEPS[step].by}
+          </small>
+          <strong>
+            {STEPS[step].label}
+            {t < PIPELINE_SECONDS - 0.4 ? "…" : ""}
+          </strong>
         </div>
 
         {/* 1. Reading the comic */}
         <div className={`pl-layer pl-read ${phase(0)}`}>
-          <div className={`pl-page ${t > 3.0 ? "pl-page--lift" : ""}`}>
+          <div className={`pl-page ${t > 2.4 ? "pl-page--lift" : ""}`}>
             <img
               alt="Your comic"
               onLoad={(event) => {
@@ -125,7 +181,7 @@ export function Pipeline({ comic, onDone }: { comic: Comic | null; onDone: () =>
             {known &&
               FOUND.map(({ label, box: [x, y, w, h] }, i) => (
                 <span
-                  className={`pl-box ${t > 1.0 + i * 0.28 ? "pl-box--on" : ""} ${i === 0 ? "pl-box--hero" : ""}`}
+                  className={`pl-box ${t > 0.8 + i * 0.22 ? "pl-box--on" : ""} ${i === 0 ? "pl-box--hero" : ""}`}
                   key={label}
                   style={{ left: `${x * 100}%`, top: `${y * 100}%`, width: `${w * 100}%`, height: `${h * 100}%` }}
                 >
@@ -133,22 +189,22 @@ export function Pipeline({ comic, onDone }: { comic: Comic | null; onDone: () =>
                 </span>
               ))}
           </div>
-          <img alt="Biscuit, lifted out of the comic" className={`pl-extracted ${t > 3.5 ? "pl-pop" : ""}`} src="/pipeline/extracted.png" />
-          <span className={`pl-sfx ${t > 3.6 ? "pl-pop" : ""}`}>FOUND HIM!</span>
+          <img alt="Biscuit, lifted out of the comic" className={`pl-extracted ${t > 2.9 ? "pl-pop" : ""}`} src="/pipeline/extracted.png" />
+          <span className={`pl-sfx ${t > 3.0 ? "pl-pop" : ""}`}>FOUND HIM!</span>
         </div>
 
         {/* 2. The model from every side */}
         <div className={`pl-layer pl-views ${phase(1)}`}>
           {VIEWS.map((view, i) => (
-            <figure className={`pl-view ${t > 4.9 + i * 0.5 ? "pl-pop" : ""}`} key={view.label}>
+            <figure className={`pl-view ${t > 4.0 + i * 0.4 ? "pl-pop" : ""}`} key={view.label}>
               <img alt="" src={view.src} />
               <figcaption>{view.label}</figcaption>
             </figure>
           ))}
           <div className="pl-meter">
-            <span>GAUSSIANS</span>
-            <strong>{count(t, 5.4, 8.6, 50000)}</strong>
-            <i style={{ "--fill": Math.min(1, Math.max(0, (t - 5.4) / 3.2)) } as CSSProperties} />
+            <span>MODEL FIT</span>
+            <strong>{count(t, 4.4, 7.2, 100)}%</strong>
+            <i style={{ "--fill": Math.min(1, Math.max(0, (t - 4.4) / 2.8)) } as CSSProperties} />
           </div>
         </div>
 
@@ -156,9 +212,9 @@ export function Pipeline({ comic, onDone }: { comic: Comic | null; onDone: () =>
         <div className={`pl-layer pl-turn ${phase(2)}`}>
           <div className="pl-sprite pl-sprite--24" style={{ backgroundImage: "url(/pipeline/rig.webp)" }} />
           <ul className="pl-tags">
-            <li className={t > 9.8 ? "pl-pop" : ""}>JOINTS <b>{count(t, 9.6, 11, 41)}</b></li>
-            <li className={t > 11.4 ? "pl-pop" : ""}>BONES PER VERTEX <b>4</b></li>
-            <li className={t > 12.4 ? "pl-pop" : ""}>SPINE · LEGS · TAIL · EARS</li>
+            <li className={t > 7.9 ? "pl-pop" : ""}>JOINTS <b>{count(t, 7.8, 9.0, 41)}</b></li>
+            <li className={t > 9.4 ? "pl-pop" : ""}>BONES PER VERTEX <b>4</b></li>
+            <li className={t > 10.3 ? "pl-pop" : ""}>SPINE · LEGS · TAIL · EARS</li>
           </ul>
         </div>
 
@@ -166,24 +222,34 @@ export function Pipeline({ comic, onDone }: { comic: Comic | null; onDone: () =>
         <div className={`pl-layer pl-turn ${phase(3)}`}>
           <div className="pl-sprite pl-sprite--24" style={{ backgroundImage: "url(/pipeline/mesh.webp)" }} />
           <ul className="pl-tags">
-            <li className={t > 14.2 ? "pl-pop" : ""}>VERTICES <b>{count(t, 14.0, 15.4, 21856)}</b></li>
-            <li className={t > 15.7 ? "pl-pop" : ""}>TRIANGLES <b>{count(t, 15.5, 16.6, 28675)}</b></li>
-            <li className={t > 17.0 ? "pl-pop" : ""}>TEXTURE <b>1024²</b></li>
+            <li className={t > 11.7 ? "pl-pop" : ""}>VERTICES <b>{count(t, 11.6, 12.8, 21858)}</b></li>
+            <li className={t > 13.0 ? "pl-pop" : ""}>TRIANGLES <b>{count(t, 12.9, 13.9, 28675)}</b></li>
+            <li className={t > 14.2 ? "pl-pop" : ""}>TEXTURE <b>1024²</b></li>
           </ul>
         </div>
 
-        {/* 5. Running on the rig */}
-        <div className={`pl-layer pl-run ${phase(4)}`}>
+        {/* 5. Splats */}
+        <div className={`pl-layer pl-turn ${phase(4)}`}>
+          <div className="pl-sprite pl-sprite--24" style={{ backgroundImage: "url(/pipeline/mesh.webp)" }} />
+          <ul className="pl-tags">
+            <li className={t > 15.5 ? "pl-pop" : ""}>GAUSSIANS <b>{count(t, 15.4, 16.8, 50000)}</b></li>
+            <li className={t > 17.2 ? "pl-pop" : ""}>SKINNED TO <b>41 JOINTS</b></li>
+            <li className={t > 18.1 ? "pl-pop" : ""}>FUR · FACE · BANDANA</li>
+          </ul>
+        </div>
+
+        {/* 6. Walking and running on the rig */}
+        <div className={`pl-layer pl-run ${phase(5)}`}>
           <i className="pl-speed" />
           <div className="pl-sprite pl-sprite--16" style={{ backgroundImage: "url(/pipeline/run.webp)" }} />
           <ul className="pl-clips">
             {CLIPS.map((clip, i) => (
-              <li className={`${t > 18.6 + i * 0.16 ? "pl-pop" : ""} ${clip === "run" ? "pl-clip--live" : ""}`} key={clip}>
+              <li className={`${t > 19.2 + i * 0.12 ? "pl-pop" : ""} ${clip === (t >= RUN_FROM ? "run" : "walk") ? "pl-clip--live" : ""}`} key={clip}>
                 {clip}
               </li>
             ))}
           </ul>
-          <span className={`pl-sfx pl-sfx--woof ${t > 21.4 ? "pl-pop" : ""}`}>WOOF!</span>
+          <span className={`pl-sfx pl-sfx--woof ${t > 21.8 ? "pl-pop" : ""}`}>WOOF!</span>
         </div>
       </div>
 
@@ -202,10 +268,10 @@ export function Pipeline({ comic, onDone }: { comic: Comic | null; onDone: () =>
 
       <ol className="pipeline-timeline">
         <i className="pipeline-timeline__fill" style={{ "--progress": Math.min(1, t / PIPELINE_SECONDS) } as CSSProperties} />
-        {SHORT.map((label, i) => (
-          <li className={phase(i)} key={label}>
+        {STEPS.map(({ short }, i) => (
+          <li className={phase(i)} key={short}>
             <span>{i < step || t >= PIPELINE_SECONDS ? "✓" : i + 1}</span>
-            {label}
+            {short}
           </li>
         ))}
       </ol>

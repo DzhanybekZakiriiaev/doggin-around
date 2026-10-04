@@ -3114,3 +3114,102 @@ input:focus-visible {
     animation: none;
   }
 }
+
+/* The volume control in the top bar (from the frontend branch): mute button and a comic-style slider. */
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: clamp(14px, 2vw, 26px);
+}
+
+.volume-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px 5px 5px;
+  border: 2px solid currentColor;
+}
+
+.volume-control__mute {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.volume-control__mute:hover {
+  background: var(--yellow);
+  color: var(--ink);
+}
+
+.volume-control__mute:focus-visible,
+.volume-slider:focus-visible {
+  outline: 3px solid var(--blue);
+  outline-offset: 2px;
+}
+
+.volume-control--muted {
+  opacity: 0.7;
+}
+
+/* Track shows the level as a yellow fill; the thumb is a small comic-style block */
+.volume-slider {
+  --fill: 45%;
+  width: 92px;
+  height: 18px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.volume-slider::-webkit-slider-runnable-track {
+  height: 6px;
+  border: 1.5px solid currentColor;
+  background: linear-gradient(90deg, currentColor var(--fill), transparent var(--fill));
+}
+
+.volume-slider::-moz-range-track {
+  height: 6px;
+  border: 1.5px solid currentColor;
+  background: linear-gradient(90deg, currentColor var(--fill), transparent var(--fill));
+}
+
+.volume-slider::-webkit-slider-thumb {
+  width: 14px;
+  height: 18px;
+  margin-top: -7.5px;
+  border: 2px solid var(--ink);
+  background: var(--cream);
+  box-shadow: 2px 2px 0 var(--ink);
+  transform: rotate(-6deg);
+  -webkit-appearance: none;
+}
+
+.volume-slider::-moz-range-thumb {
+  width: 12px;
+  height: 16px;
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  background: var(--cream);
+  box-shadow: 2px 2px 0 var(--ink);
+}
+
+@media (max-width: 760px) {
+  .volume-control {
+    gap: 4px;
+    padding: 3px 8px 3px 3px;
+  }
+
+  .volume-slider {
+    width: 58px;
+  }
+}

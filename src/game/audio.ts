@@ -2,6 +2,21 @@
 let shared: AudioContext | undefined;
 export const audioContext = () => (shared ??= new AudioContext());
 
+/** Where every sound goes: one gain before the speakers, so the menu's volume control covers them all. */
+let master: GainNode | undefined;
+export function audioOutput() {
+  if (!master) {
+    master = audioContext().createGain();
+    master.connect(audioContext().destination);
+  }
+  return master;
+}
+
+/** The menu's volume, 0 (muted) up; 1 is as recorded. */
+export function setMasterVolume(level: number) {
+  audioOutput().gain.value = Math.max(0, level);
+}
+
 /** Fetches a clip and decodes it to samples. */
 async function decode(url: string) {
   const response = await fetch(url);
@@ -101,7 +116,7 @@ export class LoopingSound {
     this.filter.type = 'lowpass';
     this.filter.Q.value = Math.SQRT1_2; // Butterworth: flat to the corner, no resonant bump at it
     this.filter.frequency.value = OPEN_AIR;
-    this.filter.connect(this.wall).connect(this.gain).connect(ctx.destination);
+    this.filter.connect(this.wall).connect(this.gain).connect(audioOutput());
     this.ready = this.load(url, fadeSeconds);
   }
 
@@ -192,7 +207,7 @@ export class OneShot {
     const ctx = audioContext();
     this.gain = ctx.createGain();
     this.gain.gain.value = volume;
-    this.gain.connect(ctx.destination);
+    this.gain.connect(audioOutput());
     this.ready = decode(url).then((clip) => void (this.clip = clip));
   }
 
@@ -322,7 +337,7 @@ export class StepSet {
     const ctx = audioContext();
     this.gain = ctx.createGain();
     this.gain.gain.value = volume;
-    this.gain.connect(ctx.destination);
+    this.gain.connect(audioOutput());
     this.ready = this.load(url);
   }
 

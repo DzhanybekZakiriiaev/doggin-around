@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { audioContext } from './audio';
+import { audioContext, audioOutput } from './audio';
 import { propModel } from './props';
 
 // Storm Night's fire: the branches the player brings in are laid on the cabin's cold grate, and once there
@@ -312,7 +312,7 @@ class CrackleSound {
     source.loop = true;
     const gain = context.createGain();
     gain.gain.value = 0;
-    source.connect(gain).connect(context.destination);
+    source.connect(gain).connect(audioOutput());
     source.start();
     this.context = context;
     this.gain = gain;

@@ -5,10 +5,13 @@ import {
   PointerEvent as ReactPointerEvent,
   KeyboardEvent as ReactKeyboardEvent,
   ReactNode,
+  createContext,
+  useContext,
   useEffect,
   useRef,
   useState,
 } from "react";
+import { audioContext, setMasterVolume } from "./game/audio";
 import { Game } from "./game/game";
 import { Pipeline } from "./Pipeline";
 
@@ -66,7 +69,7 @@ let gamePromise: Promise<Game> | undefined;
 const getGame = (onStatus: (message: string) => void) =>
   (gamePromise ??= Game.create({ quest: true, hidden: true, onStatus }));
 
-type IconName = "upload" | "arrow" | "edit" | "chevron" | "rotate" | "lock";
+type IconName = "upload" | "arrow" | "edit" | "chevron" | "rotate" | "lock" | "sound" | "muted";
 
 function Icon({ name, size = 24 }: { name: IconName; size?: number }) {
   const paths: Record<IconName, ReactNode> = {
@@ -88,6 +91,18 @@ function Icon({ name, size = 24 }: { name: IconName; size?: number }) {
       </>
     ),
     chevron: <path d="m8 5 7 7-7 7" />,
+    sound: (
+      <>
+        <path d="M4 9v6h4l5 4V5L8 9H4Z" />
+        <path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12" />
+      </>
+    ),
+    muted: (
+      <>
+        <path d="M4 9v6h4l5 4V5L8 9H4Z" />
+        <path d="m17 9 5 6M22 9l-5 6" />
+      </>
+    ),
     rotate: (
       <>
         <path d="M4 8c2-4 7-6 11-4l3 2" />
@@ -324,6 +339,169 @@ function DogNameEditor({ name, onChange }: { name: string; onChange: (name: stri
   );
 }
 
+// ---------- Sound (from the frontend branch: the theme, button clicks, panel hovers, the volume control) ----------
+
+const MUSIC_SRC = "/day-dawns.mp3";
+const DEFAULT_VOLUME = 0.45;
+const VOLUME_KEY = "doggin-around-volume";
+const LEGACY_MUTE_KEY = "doggin-around-muted";
+
+const SoundContext = createContext({ volume: DEFAULT_VOLUME, setVolume: (_volume: number) => {} });
+
+function readVolume() {
+  try {
+    const saved = localStorage.getItem(VOLUME_KEY);
+    if (saved !== null && !Number.isNaN(Number(saved))) return Math.min(1, Math.max(0, Number(saved)));
+    if (localStorage.getItem(LEGACY_MUTE_KEY) === "1") return 0;
+  } catch {
+    // Storage unavailable: fall back to the default
+  }
+  return DEFAULT_VOLUME;
+}
+
+// One player for the theme for the page's whole life: a second one (React's strict-mode double mount, or a
+// hot reload in development) would play on with nothing left to stop it.
+let theme: HTMLAudioElement | undefined;
+function themeAudio() {
+  if (!theme) {
+    theme = new Audio(MUSIC_SRC);
+    theme.loop = true;
+    theme.preload = "auto";
+  }
+  return theme;
+}
+import.meta.hot?.dispose(() => theme?.pause());
+
+// Loops the theme while `playing` is true and stops it the moment that turns false (or the volume hits 0).
+// Browsers may block audio until the visitor interacts, so playback retries on the first click or key press.
+// Returns a stop for click handlers that need the silence there and then (stepping into panel 1).
+function useBackgroundMusic(playing: boolean, volume: number) {
+  const audible = playing && volume > 0;
+
+  useEffect(() => {
+    const audio = themeAudio();
+    if (!audible) {
+      audio.pause();
+      return;
+    }
+    const events = ["pointerdown", "keydown"] as const;
+    const stopWaiting = () => events.forEach((type) => window.removeEventListener(type, start));
+    const start = () => {
+      audio.play().then(stopWaiting, () => {});
+    };
+    events.forEach((type) => window.addEventListener(type, start));
+    start();
+    return stopWaiting;
+  }, [audible]);
+
+  // Follow the slider live without restarting the track
+  useEffect(() => {
+    themeAudio().volume = Math.min(1, volume);
+  }, [volume]);
+
+  return () => themeAudio().pause();
+}
+
+// Gains are relative to the default slider level. Click peaks ~-6 dBFS, hover ~-16 dBFS, so both have headroom;
+// hover sits a little under the click.
+const UI_SOUNDS = {
+  click: { src: "/click.wav", gain: 1.8 },
+  hover: { src: "/hover.mp3", gain: 1.6 },
+} as const;
+
+// Button clicks and comic-panel hovers. Web Audio (rather than <audio>) allows boosting past 100% and
+// overlapping quick repeats; they share the game's audio context. Levels follow the volume slider.
+function useUiSounds(volume: number) {
+  const volumeRef = useRef(volume);
+  volumeRef.current = volume;
+
+  useEffect(() => {
+    const context = audioContext();
+    const buffers: Partial<Record<keyof typeof UI_SOUNDS, AudioBuffer>> = {};
+    (Object.keys(UI_SOUNDS) as (keyof typeof UI_SOUNDS)[]).forEach((name) => {
+      fetch(UI_SOUNDS[name].src)
+        .then((response) => response.arrayBuffer())
+        .then((data) => context.decodeAudioData(data))
+        .then((decoded) => {
+          buffers[name] = decoded;
+        })
+        .catch(() => {});
+    });
+
+    const play = (name: keyof typeof UI_SOUNDS) => {
+      const buffer = buffers[name];
+      if (!buffer || volumeRef.current === 0) return;
+      if (context.state === "suspended") void context.resume();
+      const gain = context.createGain();
+      gain.gain.value = Math.min(2, (UI_SOUNDS[name].gain * volumeRef.current) / DEFAULT_VOLUME);
+      const source = context.createBufferSource();
+      source.buffer = buffer;
+      source.connect(gain).connect(context.destination);
+      source.start();
+    };
+
+    const onClick = (event: MouseEvent) => {
+      if ((event.target as Element | null)?.closest("button")) play("click");
+    };
+    // Fires once per panel entry (not when moving between a panel's children); touch taps only get the click
+    const onPointerOver = (event: PointerEvent) => {
+      if (event.pointerType === "touch") return;
+      const panel = (event.target as Element | null)?.closest(".comic-cell");
+      if (!panel || panel.contains(event.relatedTarget as Node | null)) return;
+      if (panel.closest(".comic-sheet--entering")) return;
+      play("hover");
+    };
+
+    document.addEventListener("click", onClick, true);
+    document.addEventListener("pointerover", onPointerOver, true);
+    return () => {
+      document.removeEventListener("click", onClick, true);
+      document.removeEventListener("pointerover", onPointerOver, true);
+    };
+  }, []);
+}
+
+function VolumeControl() {
+  const { volume, setVolume } = useContext(SoundContext);
+  const lastAudible = useRef(volume > 0 ? volume : DEFAULT_VOLUME);
+  const percent = Math.round(volume * 100);
+
+  return (
+    <div className={`volume-control ${volume === 0 ? "volume-control--muted" : ""}`}>
+      <button
+        aria-label={volume === 0 ? "Unmute sound" : "Mute sound"}
+        className="volume-control__mute"
+        onClick={() => {
+          if (volume > 0) {
+            lastAudible.current = volume;
+            setVolume(0);
+          } else {
+            setVolume(lastAudible.current);
+          }
+        }}
+        type="button"
+      >
+        <Icon name={volume === 0 ? "muted" : "sound"} size={18} />
+      </button>
+      <input
+        aria-label="Volume"
+        aria-valuetext={`${percent}%`}
+        className="volume-slider"
+        max={100}
+        min={0}
+        onChange={(event) => {
+          const next = Number(event.target.value) / 100;
+          if (next > 0) lastAudible.current = next;
+          setVolume(next);
+        }}
+        style={{ "--fill": `${percent}%` } as CSSProperties}
+        type="range"
+        value={percent}
+      />
+    </div>
+  );
+}
+
 function TopBar({ screen, loading }: { screen: number; loading: string }) {
   return (
     <header className="topbar">
@@ -333,11 +511,14 @@ function TopBar({ screen, loading }: { screen: number; loading: string }) {
           DOGGIN’<b>AROUND</b>
         </span>
       </button>
-      <div className="progress">
-        <span className={`world-status ${loading ? "" : "world-status--ready"}`}>{loading || "WORLD READY"}</span>
-        <span>CHAPTER</span>
-        <strong>0{screen}</strong>
-        <i>/ 02</i>
+      <div className="topbar-right">
+        <VolumeControl />
+        <div className="progress">
+          <span className={`world-status ${loading ? "" : "world-status--ready"}`}>{loading || "WORLD READY"}</span>
+          <span>CHAPTER</span>
+          <strong>0{screen}</strong>
+          <i>/ 02</i>
+        </div>
       </div>
     </header>
   );
@@ -568,6 +749,7 @@ function ComicHub({
   ending,
   redraw,
   loading,
+  onStepIn,
   onEnter,
 }: {
   game: Game | null;
@@ -576,6 +758,8 @@ function ComicHub({
   ending: Ending;
   redraw: boolean;
   loading: string;
+  /** The click on panel 1 itself (the music stops there). */
+  onStepIn: () => void;
   onEnter: (panel: HTMLElement) => void;
 }) {
   const spatial = useSpatialPointer();
@@ -590,6 +774,7 @@ function ComicHub({
   const enter = async (panel: HTMLElement) => {
     if (entering || !game) return;
     setEntering(true);
+    onStepIn();
     game.capturePointer(); // this click is the user gesture mouse look needs; the game opens already looking
     const art = panel.querySelector("img");
     if (art) await game.leapInto(paintedBiscuit(art));
@@ -672,7 +857,6 @@ function IntroSplash({ onDone }: { onDone: () => void }) {
   );
 }
 
-const TRANSITION_MS = 950;
 const nextFrame = () => new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
 const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
@@ -690,7 +874,6 @@ export default function App() {
   const [screen, setScreen] = useState<1 | "pipeline" | 2 | "game">(1);
   const [splash, setSplash] = useState(true);
   const endSplash = useRef(() => setSplash(false)).current;
-  const [wipeTo, setWipeTo] = useState<number | null>(null);
   const [comic, setComic] = useState<ComicFile | null>(null);
   const [dogName, setDogName] = useState("BISCUIT");
   const displayName = dogName.trim() || "BISCUIT";
@@ -700,6 +883,23 @@ export default function App() {
   const [loading, setLoading] = useState("WAKING UP THE WORLD…");
   const [portal, setPortal] = useState<Portal | null>(null);
   const [complete, setComplete] = useState(false);
+  const [volume, setVolumeState] = useState(readVolume);
+  // The theme plays through the menu and the pipeline and stops the moment panel 1 is clicked; the game has
+  // its rain. It's back with the comic once the quest is done.
+  const [steppedIn, setSteppedIn] = useState(false);
+  const stopMusic = useBackgroundMusic(!splash && screen !== "game" && !steppedIn, volume);
+  useUiSounds(volume);
+  // The game's sounds (rain, footsteps, the door, the fire) follow the same slider; the default level is as recorded.
+  useEffect(() => setMasterVolume(volume / DEFAULT_VOLUME), [volume]);
+
+  const setVolume = (next: number) => {
+    setVolumeState(next);
+    try {
+      localStorage.setItem(VOLUME_KEY, String(next));
+    } catch {
+      // Preference just won't persist
+    }
+  };
 
   // Start the game straight away: it loads and warms up the worlds behind the menu.
   useEffect(() => {
@@ -728,16 +928,6 @@ export default function App() {
     game.onQuestComplete = () => setComplete(true);
   }, [game]);
 
-  // A panel sweeps across, the screen swaps while it's covered, then it sweeps off.
-  const wipe = (target: 1 | "pipeline" | 2, label: number) => {
-    if (wipeTo !== null) return;
-    setWipeTo(label);
-    window.setTimeout(() => {
-      setScreen(target);
-      window.scrollTo(0, 0);
-    }, TRANSITION_MS / 2);
-    window.setTimeout(() => setWipeTo(null), TRANSITION_MS);
-  };
 
   const setComicFile = (file: File) => {
     if (comic) URL.revokeObjectURL(comic.url);
@@ -787,15 +977,26 @@ export default function App() {
     window.setTimeout(() => setRedraw(false), 2400);
     game?.hide();
     setScreen(2);
+    setSteppedIn(false); // the theme's back with the comic
   };
 
   return (
+    <SoundContext.Provider value={{ volume, setVolume }}>
     <main className={`game-shell screen-${screen}`}>
       {screen === 1 && (
-        <UploadScreen comic={comic} loading={loading} onComic={setComicFile} onNext={() => wipe("pipeline", 1)} />
+        <UploadScreen
+          comic={comic}
+          loading={loading}
+          onComic={setComicFile}
+          onNext={() => {
+            setScreen("pipeline");
+            window.scrollTo(0, 0);
+          }}
+        />
       )}
-      {/* Bringing it to life: the pipeline from the comic to the 3D dog, then on to the comic page. */}
-      {screen === "pipeline" && <Pipeline comic={comic} onDone={() => wipe(2, 2)} />}
+      {/* Bringing it to life: straight from the upload into the pipeline (comic to 3D dog), and straight
+          on to the comic page; the pipeline is the transition, so no chapter cards either side of it. */}
+      {screen === "pipeline" && <Pipeline comic={comic} game={game} onDone={() => setScreen(2)} />}
       {screen === 2 && (
         <ComicHub
           ending={ending}
@@ -803,6 +1004,10 @@ export default function App() {
           loading={loading}
           name={displayName}
           onEnter={(panel) => void enterPanel(panel)}
+          onStepIn={() => {
+            stopMusic();
+            setSteppedIn(true);
+          }}
           redraw={redraw}
           setName={setDogName}
         />
@@ -833,15 +1038,7 @@ export default function App() {
       )}
       {complete && <QuestComplete name={displayName} onBack={backToComic} />}
       {splash && <IntroSplash onDone={endSplash} />}
-      {wipeTo !== null && (
-        <div aria-hidden="true" className="screen-wipe">
-          <div className="screen-wipe__panel" />
-          <div className="screen-wipe__label">
-            <small>CHAPTER</small>
-            <strong>0{wipeTo}</strong>
-          </div>
-        </div>
-      )}
     </main>
+    </SoundContext.Provider>
   );
 }
