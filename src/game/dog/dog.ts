@@ -86,6 +86,7 @@ export class Dog {
   private capturedAppearance = false
   private faceAppearance?: FaceAppearance
   private faceTransition?: Float32Array
+  private faceOutgoing?: Float32Array
   private faceBasePositions?: Float32Array
   private faceHeadLook?: FaceHeadLook
   private appearance?: DogAppearance
@@ -603,11 +604,11 @@ export class Dog {
       this.active !== next &&
       !this.active.paused &&
       !this.paused &&
-      !this.transition &&
-      !this.faceAppearance
+      !this.transition
     ) {
       // Keep the outgoing stride moving through an uninterrupted blend.
       this.transition = this.active
+      this.faceTransition = undefined
       this.transitionIsPose = false
       this.transitionTime = 0
       this.returnToIdle = false
@@ -616,6 +617,8 @@ export class Dog {
         .setEffectiveTimeScale(this.currentActionRate)
         .setEffectiveWeight(0)
         .play()
+      if (['walk', 'run'].includes(this.action) && ['walk', 'run'].includes(name))
+        next.time = (this.active.time / this.active.getClip().duration) * next.getClip().duration
       this.active = next
       this.action = name
       this.mixer.update(0)
@@ -784,12 +787,17 @@ export class Dog {
     let faceSample: Float32Array | undefined
     if (this.faceAppearance && this.active) {
       const sample = this.faceAppearance.sample(this.action, this.active.time)
-      if (this.faceTransition) {
+      let outgoing = this.faceTransition
+      if (this.transition && !this.transitionIsPose) {
+        this.faceOutgoing ??= new Float32Array(sample.length)
+        outgoing = this.faceAppearance.sample(this.transition.getClip().name, this.transition.time, this.faceOutgoing)
+      }
+      if (outgoing) {
         const progress = Math.min(this.transitionTime / this.blendSeconds, 1)
         const weight = progress * progress * (3 - 2 * progress)
         for (let index = 0; index < sample.length; index++)
           sample[index] =
-            this.faceTransition[index] * (1 - weight) + sample[index] * weight
+            outgoing[index] * (1 - weight) + sample[index] * weight
         if (progress === 1) this.faceTransition = undefined
       }
       this.faceBasePositions ??= new Float32Array(sample.length)
@@ -922,6 +930,7 @@ export class Dog {
     this.faceAppearance?.dispose()
     this.faceAppearance = undefined
     this.faceTransition = undefined
+    this.faceOutgoing = undefined
     this.faceBasePositions = undefined
     this.faceHeadLook = undefined
     this.appearance = undefined

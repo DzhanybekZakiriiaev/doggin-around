@@ -124,5 +124,6 @@ test('the selected companion keeps its skills after entering the comic', async (
   expect(skills.sort()).toEqual([...clipNames('public/models/tricolor-research/dog-animated.glb'), 'pet', 'come'].sort())
   await page.getByRole('button', { name: 'Dig', exact: true }).click()
   await expect(page.getByRole('dialog', { name: 'Dog skills' })).toBeHidden()
+  await page.waitForTimeout(750)
   expect(errors).toEqual([])
 })

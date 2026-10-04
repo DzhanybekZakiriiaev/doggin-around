@@ -3090,26 +3090,27 @@ input:focus-visible {
   content: "";
   position: absolute;
   inset: 0;
-  background: radial-gradient(circle, rgba(246, 241, 227, 0.2) 1.1px, transparent 1.6px) 0 0 / 10px 10px;
+  background: radial-gradient(circle, rgba(246, 241, 227, 0.2) 1.1px, transparent 1.6px) 0 0 / 10px 10px, var(--grain-tile) 0 0 / 180px 180px;
   mask-image: radial-gradient(ellipse at 62% 52%, transparent 30%, black 95%);
 }
 
 .hub-texture::after {
   content: "";
   position: absolute;
-  inset: 0;
-  background-image: var(--rain-tile), var(--rain-tile), var(--grain-tile);
-  background-size: 220px 220px, 340px 340px, 180px 180px;
+  inset: -220px 0;
+  background-image: var(--rain-tile);
+  background-size: 220px 220px;
   opacity: 0.45;
+  will-change: transform;
   animation: hub-rain 1.1s linear infinite;
 }
 
 @keyframes hub-rain {
   from {
-    background-position: 0 0, 0 0, 0 0;
+    transform: translate3d(0, 0, 0);
   }
   to {
-    background-position: -40px 220px, -62px 340px, 0 0;
+    transform: translate3d(0, 220px, 0);
   }
 }
 
@@ -3142,18 +3143,26 @@ input:focus-visible {
   inset: 0;
   z-index: 3;
   pointer-events: none;
-  background-image: var(--rain-tile), var(--rain-tile);
-  background-size: 260px 260px, 400px 400px;
+  overflow: hidden;
   opacity: 0.6;
+}
+
+.portal-rain::before {
+  content: "";
+  position: absolute;
+  inset: -260px 0;
+  background-image: var(--rain-tile);
+  background-size: 260px 260px;
+  will-change: transform;
   animation: portal-rain 0.55s linear infinite;
 }
 
 @keyframes portal-rain {
   from {
-    background-position: 0 0, 0 0;
+    transform: translate3d(0, 0, 0);
   }
   to {
-    background-position: -48px 260px, -72px 400px;
+    transform: translate3d(0, 260px, 0);
   }
 }
 
@@ -3164,7 +3173,7 @@ input:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   .hub-texture::after,
   .hub-screen::after,
-  .portal-rain {
+  .portal-rain::before {
     animation: none;
   }
 }
