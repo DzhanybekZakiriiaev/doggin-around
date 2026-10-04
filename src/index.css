@@ -3276,3 +3276,39 @@ input:focus-visible {
     width: 58px;
   }
 }
+
+
+/* Page 1: an uploaded comic shown whole. The frame takes the comic's shape (its aspect ratio, measured
+   once the image loads) within the space the fixed frame had; the red and ink border stays, and the cuts
+   are slight so they only clip the page's corners, not panels and speech bubbles. */
+.photo-frame--fit {
+  --fit-w: min(36vw, 510px);
+  --fit-h: min(74vh, 680px);
+  width: fit-content;
+  height: fit-content;
+  clip-path: polygon(1.5% 1%, 100% 0, 98.5% 99%, 0 100%);
+}
+
+.photo-frame--fit .photo-frame__inner {
+  width: min(var(--fit-w) - 20px, (var(--fit-h) - 20px) * var(--comic-aspect));
+  height: auto;
+  aspect-ratio: var(--comic-aspect);
+  clip-path: polygon(0.8% 0.6%, 100% 0, 99.2% 99.4%, 0 100%);
+}
+
+.photo-frame--fit img {
+  object-fit: contain;
+}
+
+@media (max-width: 1050px) {
+  .photo-frame--fit {
+    --fit-w: 39vw;
+  }
+}
+
+@media (max-width: 760px) {
+  .photo-frame--fit {
+    --fit-w: min(78vw, 390px);
+    --fit-h: 420px;
+  }
+}

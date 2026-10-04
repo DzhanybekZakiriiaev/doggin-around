@@ -281,20 +281,30 @@ function UploadZone({ comic, onFile }: { comic: ComicFile | null; onFile: (file:
 
 function ComicDrop({ comic, onFile }: { comic: ComicFile | null; onFile: (file: File) => void }) {
   const { dragging, open, dropProps, inputProps } = useFileDrop(isComic, onFile);
+  // The frame takes the comic's shape once it has loaded, so the whole page shows
+  const [measured, setMeasured] = useState<{ url: string; aspect: number } | null>(null);
+  const aspect = comic?.isImage && measured?.url === comic.url ? measured.aspect : null;
 
   return (
     <>
       <button
         aria-label={comic ? `Replace your comic (${comic.name})` : "Upload a comic"}
-        className={`photo-frame ${comic ? "photo-frame--loaded" : ""} ${dragging ? "photo-frame--dragging" : ""}`}
+        className={`photo-frame ${comic ? "photo-frame--loaded" : ""} ${aspect ? "photo-frame--fit" : ""} ${dragging ? "photo-frame--dragging" : ""}`}
         onClick={open}
+        style={aspect ? ({ "--comic-aspect": aspect } as CSSProperties) : undefined}
         type="button"
         {...dropProps}
       >
         <div className="photo-frame__inner">
           {comic?.isImage ? (
             <>
-              <img alt={`Your comic: ${comic.name}`} src={comic.url} />
+              <img
+                alt={`Your comic: ${comic.name}`}
+                onLoad={({ currentTarget: img }) =>
+                  img.naturalHeight && setMeasured({ url: comic.url, aspect: img.naturalWidth / img.naturalHeight })
+                }
+                src={comic.url}
+              />
               <span className="scan-line" />
             </>
           ) : comic ? (
