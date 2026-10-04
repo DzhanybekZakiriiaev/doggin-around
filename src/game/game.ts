@@ -3,7 +3,8 @@ import { SparkRenderer } from '@sparkjsdev/spark';
 import * as THREE from 'three';
 import { Footsteps, OneShot } from './audio';
 import { Biscuit } from './biscuit';
-import { DOG_ACTIONS, type DogAction } from './dog/dog';
+import { type DogAction } from './dog/dog'
+import { COMPANIONS, type CompanionId } from './companions'
 import { Doorway } from './door';
 import { EmoteWheel, type WheelSlot } from './emote-wheel';
 import { Fire } from './fire';
@@ -16,6 +17,7 @@ import { gripFor, Prop, type PropKind, propModel } from './props';
 import { AdaptiveQuality, splatRadiusCap } from './quality';
 import { Rain } from './rain';
 import { ComicTransition } from './transition';
+import { DogVoice } from './voice';
 import { MarbleWorld } from './world';
 import { worldRuns } from './worlds-index';
 import './game.css';
@@ -26,7 +28,9 @@ import './game.css';
 // - "play": first person in the Marble worlds, with the Storm Night quest (when on): the cabin door is
 //   locked, Biscuit digs up the spare key, the key opens the door; the cabin is freezing, so three
 //   branches from the yard go on the cold grate, and lighting the fire completes it.
-// The dev viewer (viewer.html) drives the same Game with its HUD and the quest off.
+// Biscuit takes orders three ways: the emote wheel (hold X), the look-at prompts (E), and spoken commands
+// (hold F, src/game/voice.ts). The dev viewer (viewer.html) drives the same Game with its HUD and the
+// quest off.
 
 export interface GameUi {
   prompt: HTMLElement;
@@ -67,17 +71,9 @@ const OBJECTIVES: Record<QuestStage, (gathered: number) => string> = {
   fire: () => 'The fire’s catching…',
   complete: () => 'Home, dry and warm',
 };
-// The emote wheel (X), clockwise from the top: his tricks (his own clips, Larry's backflip and dig among
-// them) and the two things you do with him.
-const TRICKS: DogAction[] = ['sit', 'bark', 'spin', 'backflip', 'jump', 'playbow', 'paw', 'dig', 'wag', 'sniff'];
-const WHEEL_SLOTS: WheelSlot[] = [
-  ...TRICKS.map((name) => {
-    const action = DOG_ACTIONS.find((candidate) => candidate.name === name)!;
-    return { id: name, label: action.label, icon: action.icon };
-  }),
-  { id: 'pet', label: 'Pet', icon: '♥' },
-  { id: 'come', label: 'Come here', icon: '↩' },
-];
+
+/** Asked for from further off than this, "dig!" is just the trick, not the quest's dig. */
+const DIG_RANGE = 4;
 
 /** Until the key turns, the front door is locked. */
 const LOCKED_STAGES: QuestStage[] = ['arrive', 'locked', 'digging', 'key'];
@@ -122,7 +118,10 @@ export class Game {
   readonly settings: Settings;
   /** Hold X: Biscuit's tricks, next to him. */
   readonly wheel: EmoteWheel;
+  /** Hold F: spoken commands (ElevenLabs Scribe, then the keyword parser). */
+  readonly voice: DogVoice;
   private interactionsBeforeWheel = true;
+  private pointerLockedBeforeWheel = false
 
   mode: 'hidden' | 'showcase' | 'play' = 'play';
   resolution: string;
@@ -193,9 +192,25 @@ export class Game {
     this.hands.setAspect(this.camera.aspect);
     this.interactions = new Interactions(this.ui.prompt);
     this.transition = new ComicTransition(this.ui.transition);
-    this.wheel = new EmoteWheel(this.layer, WHEEL_SLOTS, (slot) => this.useWheel(slot), () => this.wheelClosed());
+    this.wheel = new EmoteWheel(this.layer, [], (slot) => this.useWheel(slot), () => this.wheelClosed())
     this.biscuit = new Biscuit(this.renderer, this.physics);
     this.scene.add(this.biscuit.group);
+    this.voice = new DogVoice(this.layer, {
+      perform: (action) => this.command(action),
+      come: () => void this.callBiscuit(),
+      stop: () => void this.biscuit.perform('idle'), // whatever he's at, dropped; then he stands
+      pet: () => {
+        if (this.carried.length || this.hands.busy || !this.player.inputEnabled) return false;
+        void this.pet();
+        return true;
+      },
+      fetch: () => {
+        const top = this.carried.at(-1);
+        if (!top || top.kind === 'key' || this.hands.busy || !this.player.inputEnabled) return false;
+        void this.throwCarried();
+        return true;
+      },
+    });
     this.biscuit.ready.catch((error) => this.onStatus(`Biscuit didn't load: ${(error as Error).message}`));
     // The game plays on in silence if a sound can't load.
     this.footsteps.ready.catch((error) => console.error('No footsteps:', error));
@@ -250,7 +265,7 @@ export class Game {
       <div id="transition"><div class="ink"></div><div class="sfx"></div></div>
       <div id="start" class="hidden">
         <p class="title">Click to play</p>
-        <p>Mouse (or drag) look · WASD move · Shift run · E interact · X Biscuit's tricks · V call him · T throw · Esc release</p>
+        <p>Mouse (or drag) look · WASD move · Shift run · E interact · X Biscuit's tricks · F hold and say “Biscuit, sit!” · V call him · T throw · Esc release</p>
       </div>`;
     const $ = (selector: string) => ui.querySelector<HTMLElement>(selector)!;
     return { prompt: $('#prompt'), hint: $('#hint'), transition: $('#transition'), start: $('#start'), objective: $('.game-objective') };
@@ -380,6 +395,7 @@ export class Game {
     this.layer.classList.remove('game-layer--play', 'game-layer--showcase');
     if (document.pointerLockElement === this.canvas) document.exitPointerLock();
     this.wheel.hide(); // before input goes off: closing it turns input back on
+    this.voice.hide();
     this.interactions.enabled = false;
     this.player.inputEnabled = false;
     this.world?.deactivate();
@@ -397,6 +413,7 @@ export class Game {
     if (document.pointerLockElement === this.canvas) document.exitPointerLock();
     this.ui.start?.classList.add('hidden');
     this.wheel.hide();
+    this.voice.hide();
     this.interactions.enabled = false;
     this.player.inputEnabled = false;
     this.world?.deactivate();
@@ -489,6 +506,7 @@ export class Game {
     this.scene.background = new THREE.Color(0x1b2028);
     this.quality.resize();
     this.onResize();
+    this.voice.connect(); // the socket opens while the world comes up, so the first command costs nothing
     if (this.questOn) await this.resetQuest();
     await this.enterWorld(runId);
     // Where comic panel 1 draws him: sitting on the path ahead, a little right, looking back at you.
@@ -504,6 +522,12 @@ export class Game {
 
   spinDog(radians: number) {
     this.biscuit.spin(radians);
+  }
+
+  async selectCompanion(id: CompanionId) {
+    if (this.mode !== 'showcase' || this.leap) return false
+    this.wheel.hide()
+    return this.biscuit.selectCompanion(id)
   }
 
   petDog() {
@@ -601,6 +625,11 @@ export class Game {
 
   /** Puts the showcase render over `element`'s rectangle (called every frame while showing). */
   private placeShowcase() {
+    const wide = this.biscuit.action === 'backflip' ? 46 : ['gangnam', 'beg'].includes(this.biscuit.action) ? 36 : 28
+    this.showcaseCamera.fov = THREE.MathUtils.lerp(this.showcaseCamera.fov, wide, 0.12)
+    const frameScale = Math.tan(THREE.MathUtils.degToRad(this.showcaseCamera.fov / 2)) / Math.tan(THREE.MathUtils.degToRad(14))
+    this.showcaseCamera.lookAt(0, 0.4 * frameScale, 0)
+    this.showcaseCamera.updateProjectionMatrix()
     const rect = this.showcaseEl?.getBoundingClientRect();
     if (!rect || rect.width < 2 || rect.height < 2) return false;
     const style = this.canvas.style;
@@ -636,12 +665,23 @@ export class Game {
 
   // ---------- Interactions ----------
 
+  /** Where Biscuit digs up the spare key in this world, if it has such a spot. */
+  private get digSpot() {
+    const runId = this.world && this.runOf.get(this.world);
+    const spot = runId ? PLACEMENTS[runId]?.digSpot : undefined;
+    return spot && new THREE.Vector3(...spot);
+  }
+
+  /** True while the quest wants the hole dug and Biscuit is free to do it. */
+  private get canDigForKey() {
+    return this.questOn && (this.questStage === 'arrive' || this.questStage === 'locked') && !this.biscuit.busy;
+  }
+
   /** What the player can use in the current world: its doors, Biscuit, the props lying in it, the dig spot and the fireplace. */
   refreshInteractions() {
     const here = this.world;
     if (!here) return;
-    const runId = this.runOf.get(here);
-    const digSpot = runId && PLACEMENTS[runId]?.digSpot;
+    const digSpot = this.digSpot;
     const fire = here === this.fireWorld ? this.fire : undefined;
     this.interactions.set([
       ...(this.doorways.get(here) ?? []).map((door) => ({
@@ -671,11 +711,11 @@ export class Game {
       ...(this.questOn && digSpot
         ? [
             {
-              target: new THREE.Vector3(...digSpot),
+              target: digSpot,
               range: 3.2,
               prompt: '“Biscuit, dig!”',
-              enabled: () => (this.questStage === 'arrive' || this.questStage === 'locked') && !this.biscuit.busy,
-              act: () => this.digForKey(new THREE.Vector3(...digSpot)),
+              enabled: () => this.canDigForKey,
+              act: () => this.digForKey(digSpot),
             },
           ]
         : []),
@@ -845,28 +885,55 @@ export class Game {
 
   /** Opens the wheel next to Biscuit on screen (in the middle if he's out of view). */
   private openWheel() {
-    if (this.wheel.isOpen || !this.player.inputEnabled || this.hands.busy || !this.biscuit.group.visible) return;
+    const showcase = this.mode === 'showcase' && !this.leap
+    if (this.wheel.isOpen || !this.biscuit.isReady || (!showcase && !this.player.inputEnabled) || this.hands.busy || !this.biscuit.group.visible) return
+    const interactions: WheelSlot[] = [{ id: 'pet', label: 'Pet', icon: '♥' }]
+    if (!showcase) interactions.push({ id: 'come', label: 'Come here', icon: '↩' })
+    this.wheel.setItems([...this.biscuit.skills, ...interactions], COMPANIONS[this.biscuit.companionId].label)
     this.interactionsBeforeWheel = this.interactions.enabled;
+    this.pointerLockedBeforeWheel = document.pointerLockElement === this.canvas
     this.player.inputEnabled = false; // the mouse aims at the wheel now
     this.interactions.enabled = false;
+    if (showcase && this.showcaseEl) {
+      const rect = this.showcaseEl.getBoundingClientRect()
+      this.wheel.show({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
+      return
+    }
     const at = this.biscuit.back.clone().project(this.camera);
     const inView = at.z < 1 && Math.abs(at.x) < 1.1 && Math.abs(at.y) < 1.1;
     this.wheel.show(inView ? { x: ((at.x + 1) / 2) * window.innerWidth, y: ((1 - at.y) / 2) * window.innerHeight } : undefined);
+    if (this.pointerLockedBeforeWheel) document.exitPointerLock()
   }
 
   private wheelClosed() {
-    this.player.inputEnabled = true;
-    this.interactions.enabled = this.interactionsBeforeWheel;
+    this.player.inputEnabled = this.mode === 'play'
+    this.interactions.enabled = this.mode === 'play' && this.interactionsBeforeWheel
+    if (this.pointerLockedBeforeWheel && this.mode === 'play') this.capturePointer()
+    this.pointerLockedBeforeWheel = false
   }
 
   /** What was picked: a trick (the hands stay down, out of the way of watching it), petting him, or calling him over. */
   private useWheel(slot: WheelSlot) {
+    if (this.mode === 'showcase' && slot.id === 'pet') return void this.petDog()
     if (slot.id === 'come') return void this.callBiscuit();
     if (slot.id === 'pet') {
       if (this.carried.length) return this.showHint('Hands full · G to put things down first');
       return void this.pet();
     }
-    if (!this.biscuit.perform(slot.id as DogAction)) this.showHint('Biscuit’s busy right now');
+    if (!this.command(slot.id as DogAction)) this.showHint('Biscuit’s busy right now');
+  }
+
+  /**
+   * A trick, from the wheel or spoken. "Dig" next to the fresh hole is the quest's dig (the one that turns up
+   * the spare key), wherever the order came from; anywhere else it's just him pawing at the ground.
+   */
+  private command(action: DogAction) {
+    const spot = action === 'dig' && this.canDigForKey && !this.hands.busy ? this.digSpot : undefined;
+    if (spot && Math.hypot(spot.x - this.player.feet.x, spot.z - this.player.feet.z) <= DIG_RANGE) {
+      void this.digForKey(spot);
+      return true;
+    }
+    return this.biscuit.perform(action);
   }
 
   async callBiscuit() {
@@ -1084,25 +1151,36 @@ export class Game {
     });
     document.addEventListener('pointerlockchange', () => {
       const lost = document.pointerLockElement !== this.canvas;
+      if (lost && this.wheel.isOpen) return
       if (lost) this.wheel.hide(); // Esc
       if (lost && this.mode === 'play' && !this.settings.dragLook && this.questStage !== 'complete') this.ui.start?.classList.remove('hidden');
     });
     window.addEventListener('keydown', (event) => {
       if (event.repeat || event.target instanceof HTMLSelectElement || event.target instanceof HTMLInputElement) return;
-      if (this.mode !== 'play') return;
-      this.onKey?.(event);
+      if (this.mode !== 'play' && this.mode !== 'showcase') return
+      if (this.wheel.isOpen && ['ArrowLeft', 'ArrowRight'].includes(event.code)) {
+        event.preventDefault()
+        this.wheel.changePage(event.code === 'ArrowRight' ? 1 : -1)
+        return
+      }
+      if (this.mode === 'play') this.onKey?.(event)
       if (event.code === 'KeyX') {
+        event.preventDefault()
         if (this.wheel.isOpen) this.wheel.pick(); // the second press after a tap
         else this.openWheel();
       } else if (event.code === 'Escape') this.wheel.hide();
+      else if (this.mode !== 'play') return
       else if (event.code === 'KeyR' && this.player.inputEnabled) this.player.respawn();
       else if (event.code === 'KeyT') void this.throwCarried();
       else if (event.code === 'KeyG') void this.putDownCarried();
       else if (event.code === 'KeyV') void this.callBiscuit();
+      else if (event.code === 'KeyF') void this.voice.hold();
     });
     // Letting go of X picks whatever the wheel's aimed at (unless it was a quick tap: then it stays open).
+    // Letting go of F commits what was said, so the last words still land.
     window.addEventListener('keyup', (event) => {
       if (event.code === 'KeyX') this.wheel.release();
+      else if (event.code === 'KeyF') this.voice.release();
     });
     document.addEventListener('pointermove', (event) => {
       if (!this.wheel.isOpen) return;

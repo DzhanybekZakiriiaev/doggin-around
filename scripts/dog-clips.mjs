@@ -94,6 +94,7 @@ async function parseForThree({ json, bin }) {
 
 // ---------- The dog, posed in a metres frame like the game's ----------
 
+const current = readGlb(fs.readFileSync(MODEL))
 const source = loadSource();
 const gltf = await parseForThree(source.glb);
 const rig = JSON.parse(fs.readFileSync(RIG, 'utf8'));
@@ -274,6 +275,7 @@ function patch({ json, bin }, bakedClips) {
     animation.samplers = [];
     animation.channels = [];
     for (const [bone, tracks] of baked.tracks) {
+      if (!nodeIndex.has(bone)) throw new Error(`The current rig has no ${bone}`)
       for (const [gltfPath, values, width] of [
         ['translation', tracks.translation, 3],
         ['rotation', tracks.rotation, 4],
@@ -395,25 +397,25 @@ for (const clip of baked) {
 if (dryRun) {
   console.log('\nDry run: nothing written.');
 } else {
-  const output = patch(source.glb, baked);
+  const output = patch(current, baked);
   // Everything but the two clips must come through byte for byte.
   const check = readGlb(writeGlb(output.json, output.bin));
   const bytesOf = ({ json, bin }, accessor) => {
     const view = json.bufferViews[json.accessors[accessor].bufferView];
     return bin.subarray(view.byteOffset ?? 0, (view.byteOffset ?? 0) + view.byteLength);
   };
-  const oldPrimitive = source.glb.json.meshes[0].primitives[0];
+  const oldPrimitive = current.json.meshes[0].primitives[0];
   const newPrimitive = check.json.meshes[0].primitives[0];
   for (const key of Object.keys(oldPrimitive.attributes))
-    if (!bytesOf(source.glb, oldPrimitive.attributes[key]).equals(bytesOf(check, newPrimitive.attributes[key])))
+    if (!bytesOf(current, oldPrimitive.attributes[key]).equals(bytesOf(check, newPrimitive.attributes[key])))
       throw new Error(`Mesh attribute ${key} changed`);
-  if (!bytesOf(source.glb, source.glb.json.skins[0].inverseBindMatrices).equals(bytesOf(check, check.json.skins[0].inverseBindMatrices)))
+  if (!bytesOf(current, current.json.skins[0].inverseBindMatrices).equals(bytesOf(check, check.json.skins[0].inverseBindMatrices)))
     throw new Error('Skin changed');
   const imageBytes = ({ json, bin }) => {
     const view = json.bufferViews[json.images[0].bufferView];
     return bin.subarray(view.byteOffset ?? 0, (view.byteOffset ?? 0) + view.byteLength);
   };
-  if (source.glb.json.images?.length && !imageBytes(source.glb).equals(imageBytes(check))) throw new Error('Texture changed');
+  if (current.json.images?.length && !imageBytes(current).equals(imageBytes(check))) throw new Error('Texture changed');
   fs.writeFileSync(MODEL, writeGlb(output.json, output.bin));
   console.log(`\nWrote ${path.relative(root, MODEL)} (${(fs.statSync(MODEL).size / 1e6).toFixed(2)} MB): walk and run rebuilt, everything else unchanged.`);
 }

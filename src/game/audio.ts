@@ -1,6 +1,21 @@
 /** One context for every sound in the game; browsers only allow a handful. */
 let shared: AudioContext | undefined;
-export const audioContext = () => (shared ??= new AudioContext());
+export const audioContext = () => (shared ??= open());
+
+/**
+ * Nothing here suspends the context on purpose, so one that stops running was interrupted from outside:
+ * the output device changed (headphones pulled out, a capture device opening in Windows' communications
+ * mode) or the tab was put to sleep. Several of the sounds below simply don't play while it is suspended,
+ * which would leave the game silent for good, so pick it back up. Before the first gesture the resume is
+ * refused and the sounds' own retries take over.
+ */
+function open() {
+  const context = new AudioContext();
+  context.addEventListener('statechange', () => {
+    if (context.state === 'suspended') void context.resume().catch(() => undefined);
+  });
+  return context;
+}
 
 /** Where every sound goes: one gain before the speakers, so the menu's volume control covers them all. */
 let master: GainNode | undefined;
