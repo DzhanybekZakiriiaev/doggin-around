@@ -1,0 +1,17 @@
+node_modules/
+dist/
+
+# Secrets (World Labs, Gemini, ElevenLabs keys) - never commit, never ship to the browser
+.env
+.env.*
+!.env.example
+
+# Generated World Labs runs (drafts, SPZ, colliders, panos). Copy the chosen world into the game's assets instead.
+worlds/out/
+
+# Editors / OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db

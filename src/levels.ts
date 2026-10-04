@@ -1,0 +1,109 @@
+// Gameplay placements for each generated world, in that world's metres (the viewer's frame:
+// floor under the panorama camera at y = 0, panorama centre facing -Z).
+// Measured by raycasting the world's collider (see MarbleWorld.raycastPano); a new generation of a
+// world needs its placements measured again.
+
+import type { PropKind } from './props';
+
+export type LevelId = 'yard' | 'cabin';
+
+export interface DoorPlacement {
+  id: string;
+  /** Bottom centre of the doorway, on the threshold. */
+  base: [number, number, number];
+  /** Horizontal direction the doorway faces: out of the wall, towards where the player approaches from. */
+  facing: [number, number];
+  width: number;
+  height: number;
+  /** The door leaf filling the doorway; without one it's an open doorway. */
+  door?: {
+    /** The world has this door painted in: erase it and show a dark recess behind the leaf. */
+    painted: boolean;
+    /** Hinge side, as seen by the player approaching. */
+    hinge: 'left' | 'right';
+    /** `push` swings away from the player, `pull` towards them. */
+    opens: 'push' | 'pull';
+  };
+  to: LevelId;
+  prompt: string;
+  /** Comic lettering over the transition. */
+  sfx: string;
+}
+
+export interface PropPlacement {
+  kind: PropKind;
+  /** Where it's dropped in from when the world loads; it settles onto the ground. */
+  at: [number, number, number];
+}
+
+export interface Placements {
+  doors: DoorPlacement[];
+  props?: PropPlacement[];
+}
+
+export const PLACEMENTS: Record<string, Placements> = {
+  // Yard A: big stump, mailbox
+  'yard-single/2026-10-04T02-05-08_standard_77b1c400': {
+    props: [
+      { kind: 'stick', at: [0.7, 0.5, -2.4] },
+      { kind: 'key', at: [-0.6, 0.5, -2.0] },
+    ],
+    doors: [
+      {
+        id: 'front-door',
+        base: [-0.46, 0.94, -9.14],
+        facing: [-0.42, 0.91],
+        width: 1.0,
+        height: 1.97,
+        door: { painted: true, hinge: 'left', opens: 'push' },
+        to: 'cabin',
+        prompt: 'Open the door',
+        sfx: 'CREEAK!',
+      },
+    ],
+  },
+  // Yard B: woodpile, gate
+  'yard-single/2026-10-04T02-05-53_standard_a985bc88': {
+    props: [
+      { kind: 'stick', at: [0.7, 0.5, -2.4] },
+      { kind: 'key', at: [-0.6, 0.5, -2.0] },
+    ],
+    doors: [
+      {
+        id: 'front-door',
+        base: [-0.48, 1.07, -9.3],
+        facing: [-0.41, 0.91],
+        width: 1.0,
+        height: 1.97,
+        door: { painted: true, hinge: 'left', opens: 'push' },
+        to: 'cabin',
+        prompt: 'Open the door',
+        sfx: 'CREEAK!',
+      },
+    ],
+  },
+  'cabin-single/2026-10-04T02-04-41_standard_dd8ca1b4': {
+    props: [{ kind: 'stick', at: [0.5, 0.5, -1.0] }],
+    doors: [
+      {
+        // The same door seen from inside: the doorway is open in the painted world, so the leaf fills it.
+        // Hinged on the right from in here (the left from outside) and opening into the room.
+        id: 'front-door',
+        base: [-0.09, 0, 2.0],
+        facing: [0, -1],
+        width: 1.24,
+        height: 2.1,
+        door: { painted: false, hinge: 'right', opens: 'pull' },
+        to: 'yard',
+        prompt: 'Open the door',
+        sfx: 'WHOOSH!',
+      },
+    ],
+  },
+};
+
+/** Which generated world each level uses. Switch the yard here once one is chosen. */
+export const LEVEL_RUNS: Record<LevelId, string> = {
+  yard: 'yard-single/2026-10-04T02-05-08_standard_77b1c400',
+  cabin: 'cabin-single/2026-10-04T02-04-41_standard_dd8ca1b4',
+};

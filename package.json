@@ -1,0 +1,29 @@
+{
+  "name": "panel-walk",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "typecheck": "tsc",
+    "worlds": "node scripts/worldlabs.mjs",
+    "pano": "node scripts/pano-fix.mjs",
+    "hands-style": "node scripts/hands-style.mjs",
+    "comic": "node scripts/comic-panels.mjs"
+  },
+  "dependencies": {
+    "@dimforge/rapier3d-compat": "^0.21.0",
+    "@sparkjsdev/spark": "^2.3.1",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@types/three": "^0.186.0",
+    "sharp": "^0.35.5",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.2"
+  }
+}

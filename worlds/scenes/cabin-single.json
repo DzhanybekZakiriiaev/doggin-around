@@ -1,0 +1,20 @@
+{
+  "displayName": "Storm Night - Cabin Living Room (1 plate)",
+  "tags": [
+    "storm-night",
+    "cabin",
+    "panel-2"
+  ],
+  "panoFix": {
+    "place": "a cozy rustic log cabin living room in the evening",
+    "down": "wide worn wooden plank floor with the edge of a braided oval rug",
+    "up": "the log cabin ceiling: wooden planks crossed by thick exposed log beams"
+  },
+  "textPrompt": "Cozy rustic log cabin living room in the evening, seen at eye level from the center of the room. Ahead: a large river-stone fireplace with an empty cold hearth (clean iron grate, a little grey ash, no fire, no logs), a thick wooden mantel with a clock and candles, an empty wicker log basket and iron fire tools. To the right: a worn brown leather couch with a chunky knitted blanket under a large window showing blue dusk and pine silhouettes, a side table with a lamp, and an empty round dog bed in the corner. Behind: an open front doorway with no door onto a dim covered porch, coat hooks with a scarf and a lantern, a boot tray and a small bench. To the left: a small kitchen nook with a wooden counter, open shelves of mugs and jars, a kettle, a small round table with two chairs, and a wide-open back door onto a dark back porch. A braided oval rug on a wide plank floor, exposed log walls and ceiling beams. Soft even evening lamplight, warm amber with cool blue from the windows. Stylized semi-realistic animated-film look with hand-painted textures and rich teal, amber and magenta color. The room is empty and still: no people, no animals.",
+  "images": [
+    {
+      "file": "cabin_000.jpg",
+      "azimuth": 0
+    }
+  ]
+}

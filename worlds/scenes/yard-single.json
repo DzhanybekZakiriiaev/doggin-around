@@ -1,0 +1,20 @@
+{
+  "displayName": "Storm Night - Front Yard (1 plate)",
+  "tags": [
+    "storm-night",
+    "yard",
+    "panel-1"
+  ],
+  "panoFix": {
+    "place": "the front yard of a small log cabin in a pine forest at overcast dusk",
+    "down": "damp gravel path with patches of grass, mud and scattered pine needles",
+    "up": "overcast dusk sky with soft grey-teal storm clouds and a few dark pine treetops near the edges"
+  },
+  "textPrompt": "Front yard of a small cozy log cabin in a pine forest at overcast dusk, seen at eye level from the middle of the yard. Facing the cabin: a wide covered wooden porch with three broad steps, a warm glowing lantern beside a closed red front door, a wooden bench, log walls with one warmly lit window, and a freshly dug empty muddy hole in bare soil beside the steps. To the right: the side of the cabin with a stacked woodpile under a small slanted roof, a rain barrel, and a big old pine tree with roots spreading over soft ground. Behind: a gravel path leading to a gap in a low split-rail fence with a mailbox on a post, a wide old tree stump on one side and a flower bed of loose dark soil on the other, dark pines beyond and a distant storm cloud bank. To the left: the fence curving past an old wooden wheelbarrow, ferns and tall grass. Damp gravel, grass and pine needles underfoot. Soft even blue-grey dusk light with warm amber accents from the lantern and window. Stylized semi-realistic animated-film look with hand-painted textures and rich teal, amber and magenta color. The yard is empty and still: no people, no animals.",
+  "images": [
+    {
+      "file": "yard_000.jpg",
+      "azimuth": 0
+    }
+  ]
+}

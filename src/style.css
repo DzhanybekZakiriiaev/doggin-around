@@ -1,0 +1,211 @@
+:root {
+  color-scheme: dark;
+  --panel: rgb(16 18 24 / 78%);
+  --text: #eef0f4;
+  --muted: #a4abb8;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #1b2028;
+  color: var(--text);
+  font: 13px/1.4 system-ui, sans-serif;
+}
+
+#scene {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+}
+
+#hud {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  max-width: calc(100vw - 120px);
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+#hud select {
+  max-width: 280px;
+  margin-left: 4px;
+  font: inherit;
+}
+
+#status {
+  color: var(--muted);
+}
+
+#fps {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--panel);
+  font-variant-numeric: tabular-nums;
+}
+
+#start {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 6px;
+  text-align: center;
+  background: rgb(0 0 0 / 35%);
+  cursor: pointer;
+}
+
+#start p {
+  margin: 0;
+  color: var(--muted);
+}
+
+#start .title {
+  color: var(--text);
+  font-size: 22px;
+  font-weight: 600;
+}
+
+#start.hidden {
+  display: none;
+}
+
+/* ---------- In-game overlays ---------- */
+
+:root {
+  --ink: #140c12;
+  --sfx-yellow: #ffd23f;
+  --sfx-red: #e2383f;
+  --comic-font: 'Bangers', Impact, 'Arial Black', sans-serif;
+}
+
+#hud input[type='range'] {
+  width: 90px;
+  vertical-align: middle;
+}
+
+#crosshair {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 80%);
+  box-shadow: 0 0 0 1.5px var(--ink);
+  pointer-events: none;
+}
+
+#prompt {
+  position: fixed;
+  left: 50%;
+  bottom: 16%;
+  transform: translate(-50%, 8px);
+  opacity: 0;
+  transition: opacity 0.15s, transform 0.15s;
+  color: #fff;
+  font: 28px/1 var(--comic-font);
+  letter-spacing: 1px;
+  text-shadow: 2px 2px 0 var(--ink);
+  pointer-events: none;
+}
+
+#prompt.visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+#prompt kbd {
+  display: inline-block;
+  min-width: 1.3em;
+  margin-right: 0.3em;
+  padding: 2px 0.3em 0;
+  border: 2px solid var(--ink);
+  border-radius: 4px;
+  background: var(--sfx-yellow);
+  box-shadow: 2px 2px 0 var(--ink);
+  color: var(--ink);
+  font: inherit;
+  text-align: center;
+  text-shadow: none;
+}
+
+/* Iris wipe: the view closes to a circle of halftone ink. */
+@property --iris {
+  syntax: '<percentage>';
+  inherits: false;
+  initial-value: 150%;
+}
+
+#transition {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+}
+
+#transition .ink {
+  position: absolute;
+  inset: 0;
+  --iris: 150%;
+  background:
+    radial-gradient(circle, rgb(255 236 200 / 10%) 25%, transparent 28%) 0 0 / 9px 9px,
+    var(--ink);
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, transparent var(--iris), #000 calc(var(--iris) + 0.5%));
+  mask-image: radial-gradient(circle at 50% 50%, transparent var(--iris), #000 calc(var(--iris) + 0.5%));
+  transition: --iris var(--wipe-seconds, 0.55s) cubic-bezier(0.7, 0, 0.3, 1);
+}
+
+#transition[data-state='covered'] {
+  pointer-events: auto;
+}
+
+#transition[data-state='covered'] .ink {
+  --iris: 0%;
+}
+
+#transition .sfx {
+  position: absolute;
+  left: 50%;
+  top: 40%;
+  transform: translate(-50%, -50%) rotate(-8deg) scale(0);
+  color: var(--sfx-yellow);
+  font: clamp(48px, 10vw, 128px) / 1 var(--comic-font);
+  letter-spacing: 3px;
+  -webkit-text-stroke: 3px var(--ink);
+  text-shadow: 6px 6px 0 var(--sfx-red);
+  transition: transform 0.25s cubic-bezier(0.3, 1.6, 0.5, 1);
+}
+
+#transition[data-state='covered'] .sfx.pop {
+  transform: translate(-50%, -50%) rotate(-8deg) scale(1);
+}
+
+#hint {
+  position: fixed;
+  left: 50%;
+  bottom: 9%;
+  transform: translateX(-50%);
+  color: rgb(255 255 255 / 85%);
+  font: 18px/1 var(--comic-font);
+  letter-spacing: 1px;
+  text-shadow: 2px 2px 0 var(--ink);
+  white-space: nowrap;
+  pointer-events: none;
+}
