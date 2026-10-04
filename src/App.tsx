@@ -492,7 +492,6 @@ function MeetScreen({
   const [rotation, setRotation] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [startX, setStartX] = useState(0);
-  const [listening, setListening] = useState(false);
   const [called, setCalled] = useState(false);
   const [petting, setPetting] = useState(false);
   const [tech, setTech] = useState(false);
@@ -524,7 +523,7 @@ function MeetScreen({
 
   return (
     <section
-      className={`screen meet-screen ${listening ? "meet-screen--listening" : ""}`}
+      className="screen meet-screen"
       onPointerMove={spatial.onPointerMove}
       style={spatial.style}
     >
@@ -589,18 +588,8 @@ function MeetScreen({
         <span>·</span>
         <span>SCROLL TO ZOOM</span>
       </div>
-      <button className="call-control" onClick={callDog} type="button">
-        <kbd>Q</kbd> CALL
-      </button>
       <TechDebugToggle active={tech} onToggle={() => setTech(!tech)} />
       <div className="meet-footer">
-        <MicInput
-          listening={listening}
-          onListening={(value) => {
-            setListening(value);
-            if (value) callDog();
-          }}
-        />
         <GameCTA className="adventure-cta" onClick={onNext}>
           START AN ADVENTURE
         </GameCTA>
