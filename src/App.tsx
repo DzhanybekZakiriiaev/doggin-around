@@ -377,12 +377,10 @@ function TopBar({ screen }: { screen: number }) {
 function UploadScreen({
   dogImage,
   onFile,
-  onExample,
   onNext,
 }: {
   dogImage: string;
   onFile: (file: File) => void;
-  onExample: () => void;
   onNext: () => void;
 }) {
   const spatial = useSpatialPointer();
@@ -409,9 +407,6 @@ function UploadScreen({
           <UploadZone onFile={receiveFile} />
           <div className="upload-actions">
             <GameCTA onClick={onNext}>BRING THEM TO LIFE</GameCTA>
-            <button className="text-action" onClick={onExample} type="button">
-              <Icon name="spark" size={16} /> TRY AN EXAMPLE DOG
-            </button>
           </div>
         </div>
         <div className="photo-intro">
@@ -427,7 +422,6 @@ function UploadScreen({
             <div className="photo-frame__inner">
               <img alt="Your dog ready to become a game character" src={dogImage} />
               <span className="scan-line" />
-              <span className="frame-tag">PLAYER 02</span>
             </div>
           </div>
           <div className="transform-arrow">
@@ -652,7 +646,6 @@ export default function App() {
       {screen === 1 && (
         <UploadScreen
           dogImage={dogImage}
-          onExample={() => setDogImage(SAMPLE_DOG)}
           onFile={setFile}
           onNext={next}
         />
