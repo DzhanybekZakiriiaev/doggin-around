@@ -1,8 +1,9 @@
 import * as THREE from 'three';
+import { LoopingSound } from './audio';
 import type { RainShelter } from './levels';
 
 // Storm Night's rain: streaks falling round the player in the yard, rings where they land, and the sound of
-// it (loud outside, muffled on the roof indoors). The drops move entirely in the vertex shader: each falls
+// it (the world-sfx recording: open outside, muffled through the cabin's walls). The drops move entirely in the vertex shader: each falls
 // through a box that travels with the camera and wraps round its edges, so a frame only updates a few
 // uniforms. A depth map of the world's collider seen from above (rendered once per world) keeps them off
 // roofs and from falling through the ground; where the collider has holes (Marble only builds what the
@@ -18,6 +19,7 @@ const STREAK_SECONDS = 0.035; // motion blur: how long each streak is
 const SPLASH_AREA = 10; // metres square round the camera
 const SPLASH_SECONDS = 0.5;
 const FADE_SECONDS = 0.8;
+const RAIN_VOLUME = 0.4;
 const TIME_WRAP = 600; // seconds; the drops re-randomise when the clock wraps, which nobody can see in rain
 
 // The shelter map: the collider seen from straight above, from SHELTER_TOP down.
@@ -192,7 +194,7 @@ function quads(count: number, corners: [number, number][]) {
 
 interface Shelter {
   target: THREE.WebGLRenderTarget;
-  /** World position → (u, v, depth) in the map. */
+  /** World position â†’ (u, v, depth) in the map. */
   matrix: THREE.Matrix4;
 }
 
@@ -223,7 +225,8 @@ export class Rain {
   };
   private readonly splashes: THREE.Mesh;
   private readonly shelters = new WeakMap<THREE.Object3D, Shelter>();
-  private readonly sound = new RainSound();
+  /** The recorded rain (world-sfx), muffled through the cabin's walls. */
+  private readonly sound = new LoopingSound('/audio/rain.mp3', 0);
   private readonly bufferSize = new THREE.Vector2();
   private place: RainPlace = 'none';
   private intensity = 0;
@@ -308,11 +311,6 @@ export class Rain {
     this.shelters.delete(ground);
   }
 
-  /** Starts the sound if the browser held it back until a click or key press. */
-  wake() {
-    this.sound.wake();
-  }
-
   update(dt: number, camera: THREE.PerspectiveCamera) {
     const target = this.place === 'outside' && this.on ? 1 : 0;
     this.intensity += (target - this.intensity) * (1 - Math.exp(-dt / FADE_SECONDS));
@@ -327,9 +325,14 @@ export class Rain {
     u.uPixel.value = (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) / Math.max(1, height);
   }
 
+  /** Out in it, or heard through the cabin's walls (the same level, muffled); silent in the menu. */
   private updateSound() {
-    const level = !this.on ? 0 : this.place === 'outside' ? 0.3 : this.place === 'inside' ? 0.16 : 0;
-    this.sound.set(level, this.place === 'inside');
+    const audible = this.on && this.place !== 'none';
+    if (audible) {
+      this.sound.start(); // waits for a click or key press if the browser's holding sound back
+      this.sound.muffle(this.place === 'inside' ? 1 : 0, 0); // a straight cut: the door's iris covers it
+    }
+    this.sound.fadeTo(audible ? RAIN_VOLUME : 0);
   }
 
   /** The collider's depth from straight above, rendered once per world (with a copy sharing its geometry). */
@@ -371,91 +374,4 @@ export class Rain {
     this.shelters.set(ground, shelter);
     return shelter;
   }
-}
-
-/**
- * The sound of rain, made on the spot: looping pink noise with sparse drop ticks, through a low-pass filter
- * that closes down indoors (rain on the roof).
- */
-class RainSound {
-  private context?: AudioContext;
-  private gain?: GainNode;
-  private lowpass?: BiquadFilterNode;
-  private level = 0;
-  private suspendTimer = 0;
-
-  set(level: number, muffled: boolean) {
-    this.level = level;
-    if (level > 0) this.start();
-    const { context, gain, lowpass } = this;
-    if (!context || !gain || !lowpass) return;
-    gain.gain.setTargetAtTime(level, context.currentTime, 0.5);
-    lowpass.frequency.setTargetAtTime(muffled ? 700 : 6500, context.currentTime, 0.2);
-    window.clearTimeout(this.suspendTimer);
-    if (level > 0) void context.resume().catch(() => {});
-    else this.suspendTimer = window.setTimeout(() => void context.suspend().catch(() => {}), 3000);
-  }
-
-  wake() {
-    if (this.level > 0 && this.context?.state === 'suspended') void this.context.resume().catch(() => {});
-  }
-
-  private start() {
-    if (this.context) return;
-    let context: AudioContext;
-    try {
-      context = new AudioContext();
-    } catch {
-      return; // no Web Audio: a silent storm
-    }
-    const source = context.createBufferSource();
-    source.buffer = rainNoise(context);
-    source.loop = true;
-    const highpass = context.createBiquadFilter();
-    highpass.type = 'highpass';
-    highpass.frequency.value = 250;
-    const lowpass = context.createBiquadFilter();
-    lowpass.type = 'lowpass';
-    lowpass.frequency.value = 6500;
-    const gain = context.createGain();
-    gain.gain.value = 0;
-    source.connect(highpass).connect(lowpass).connect(gain).connect(context.destination);
-    source.start();
-    this.context = context;
-    this.gain = gain;
-    this.lowpass = lowpass;
-  }
-}
-
-/** Six seconds of stereo rain that loops without a seam. */
-function rainNoise(context: AudioContext) {
-  const rate = context.sampleRate;
-  const length = rate * 6;
-  const seam = Math.round(rate * 0.1);
-  const buffer = context.createBuffer(2, length, rate);
-  for (let channel = 0; channel < 2; channel++) {
-    const samples = new Float32Array(length + seam);
-    let b0 = 0;
-    let b1 = 0;
-    let b2 = 0;
-    let drop = 0;
-    for (let i = 0; i < samples.length; i++) {
-      const white = Math.random() * 2 - 1;
-      // Pink noise (Paul Kellet's economy filter): the steady hiss.
-      b0 = 0.99765 * b0 + white * 0.099046;
-      b1 = 0.963 * b1 + white * 0.2965164;
-      b2 = 0.57 * b2 + white * 1.0526913;
-      const pink = (b0 + b1 + b2 + white * 0.1848) * 0.11;
-      // Now and then a nearby drop: a short burst of noise.
-      if (Math.random() < 40 / rate) drop = 0.3 + Math.random() * 0.7;
-      drop *= 0.996;
-      samples[i] = pink * 0.7 + white * drop * 0.35;
-    }
-    // Cross-fade the overrun into the start so the end runs straight on into the beginning.
-    const data = buffer.getChannelData(channel);
-    for (let i = 0; i < length; i++) {
-      data[i] = i < seam ? samples[i] * (i / seam) + samples[length + i] * (1 - i / seam) : samples[i];
-    }
-  }
-  return buffer;
 }

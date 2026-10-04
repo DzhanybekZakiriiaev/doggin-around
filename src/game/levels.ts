@@ -45,6 +45,19 @@ export interface RainShelter {
   yaw: number;
 }
 
+/** Which footstep recording the ground plays. */
+export type Surface = 'wet' | 'wood';
+
+export interface Footing {
+  /** What the player is walking on at ground level. */
+  ground: Surface;
+  /**
+   * Height at which the ground gives way to decking, in this world's metres. The porch slab and its
+   * steps are the only raised floor in the yards, so standing above this means standing on planks.
+   */
+  boardsAbove?: number;
+}
+
 export interface Placements {
   doors: DoorPlacement[];
   props?: PropPlacement[];
@@ -59,6 +72,8 @@ export interface Placements {
    * parts of the porch roof are missing) and rain would fall through them: these boxes keep it out.
    */
   rainShelters?: RainShelter[];
+  /** What it sounds like underfoot. Worlds without one fall back to their mood.  */
+  footing?: Footing;
 }
 
 export const PLACEMENTS: Record<string, Placements> = {
@@ -77,6 +92,8 @@ export const PLACEMENTS: Record<string, Placements> = {
       { center: [-0.43, 1.48, -8.02], size: [8.6, 3.95, 2.6], yaw: -0.432 },
       { center: [2.05, 3.25, -13.38], size: [8.6, 7.5, 9.2], yaw: -0.432 },
     ],
+    // Deck measured at y 0.93, open ground at 0.03; the steps bridge the two.
+    footing: { ground: 'wet', boardsAbove: 0.3 },
     doors: [
       {
         id: 'front-door',
@@ -97,6 +114,8 @@ export const PLACEMENTS: Record<string, Placements> = {
     props: [
       { kind: 'stick', at: [0.7, 0.5, -2.4] },
     ],
+    // Deck measured at y 1.02, open ground at 0.11.
+    footing: { ground: 'wet', boardsAbove: 0.3 },
     doors: [
       {
         id: 'front-door',
@@ -115,6 +134,7 @@ export const PLACEMENTS: Record<string, Placements> = {
   'cabin-single/2026-10-04T02-04-41_standard_dd8ca1b4': {
     props: [{ kind: 'stick', at: [0.5, 0.5, -1.0] }],
     fireplace: [0, 0.2, -5.72], // on the grate, inside the stone fireplace straight ahead
+    footing: { ground: 'wood' }, // floorboards throughout
     doors: [
       {
         // The same door seen from inside: the doorway is open in the painted world, so the leaf fills it.

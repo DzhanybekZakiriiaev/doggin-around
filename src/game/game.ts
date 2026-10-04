@@ -1,13 +1,14 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { SparkRenderer } from '@sparkjsdev/spark';
 import * as THREE from 'three';
+import { Footsteps, OneShot } from './audio';
 import { Biscuit } from './biscuit';
 import { Doorway } from './door';
 import { Fire } from './fire';
 import { FirstPersonHands } from './hands';
 import { Interactions } from './interaction';
 import { MoodLights } from './lighting';
-import { LEVEL_RUNS, PLACEMENTS } from './levels';
+import { type Footing, LEVEL_RUNS, PLACEMENTS, type Surface } from './levels';
 import { FirstPersonPlayer } from './player';
 import { gripFor, Prop, type PropKind, propModel } from './props';
 import { AdaptiveQuality, splatRadiusCap } from './quality';
@@ -131,6 +132,11 @@ export class Game {
   private fire?: Fire;
   private fireWorld?: MarbleWorld;
   private readonly tint = new THREE.Color();
+  // Footfalls on whatever's underfoot, and the front door's hinges (world-sfx). Footsteps keep their
+  // cadence from the distance walked, so wet ground and floorboards step at the same rate.
+  private readonly footsteps = new Footsteps({ wet: '/audio/wet-footsteps.mp3', wood: '/audio/wood-footsteps.mp3' }, 'wet', 0.7);
+  private readonly doorCreak = new OneShot('/audio/door-creak.mp3', 0.85);
+  private footing: Footing = { ground: 'wet' };
   private showcaseEl?: HTMLElement;
   private readonly showcaseCamera = new THREE.PerspectiveCamera(28, 1, 0.05, 50);
   private showcaseSize = new THREE.Vector2();
@@ -173,6 +179,9 @@ export class Game {
     this.biscuit = new Biscuit(this.renderer, this.physics);
     this.scene.add(this.biscuit.group);
     this.biscuit.ready.catch((error) => this.onStatus(`Biscuit didn't load: ${(error as Error).message}`));
+    // The game plays on in silence if a sound can't load.
+    this.footsteps.ready.catch((error) => console.error('No footsteps:', error));
+    this.doorCreak.ready.catch((error) => console.error('No door creak:', error));
 
     this.settings = this.loadSettings();
     this.player.lookSpeed = this.settings.lookSpeed;
@@ -333,6 +342,7 @@ export class Game {
     this.worldLights.setMood(mood);
     this.biscuit.setMood(mood);
     this.rain.setPlace(mood === 'dusk' ? 'outside' : 'inside', next.colliderView, PLACEMENTS[runId]?.rainShelters);
+    this.footing = PLACEMENTS[runId]?.footing ?? { ground: mood === 'indoor' ? 'wood' : 'wet' };
     this.fire?.setAudible(next === this.fireWorld);
     this.refreshInteractions();
     this.quality.reset();
@@ -981,6 +991,7 @@ export class Game {
         const action = leaf.opens === 'push' ? 'openDoor' : 'pullDoor';
         await new Promise<void>((swing) => void this.hands.play(action, { swing }, knob));
         void door.open();
+        this.doorCreak.play(); // the hinges, over whatever the rain is doing
         await wait(leaf.opens === 'push' ? 0.3 : 0.45);
       }
       await this.transition.cover(door.placement.sfx);
@@ -1022,7 +1033,6 @@ export class Game {
     this.canvas.addEventListener('click', this.lockPointer);
     this.canvas.addEventListener('pointerdown', () => {
       if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-      this.rain.wake();
     });
     document.addEventListener('pointerlockchange', () => {
       const lost = document.pointerLockElement !== this.canvas;
@@ -1031,7 +1041,6 @@ export class Game {
     window.addEventListener('keydown', (event) => {
       if (event.repeat || event.target instanceof HTMLSelectElement || event.target instanceof HTMLInputElement) return;
       if (this.mode !== 'play') return;
-      this.rain.wake();
       this.onKey?.(event);
       if (event.code === 'KeyR' && this.player.inputEnabled) this.player.respawn();
       else if (event.code === 'KeyT') void this.throwCarried();
@@ -1051,6 +1060,11 @@ export class Game {
     this.camera.updateProjectionMatrix();
     this.hands.setAspect(this.camera.aspect);
     this.quality.resize(); // the render size, and the splat size cap that goes with it
+  }
+
+  /** Planks if the player is up on the porch or its steps, otherwise whatever this world's ground is. */
+  private underfoot(feetY: number): Surface {
+    return this.footing.boardsAbove !== undefined && feetY >= this.footing.boardsAbove ? 'wood' : this.footing.ground;
   }
 
   // ---------- Loop ----------
@@ -1092,6 +1106,8 @@ export class Game {
     const world = this.world;
     if (world) {
       this.player.update(dt);
+      this.footsteps.surface = this.underfoot(this.player.feet.y); // the porch is planked though it's outdoors
+      this.footsteps.update(dt, this.player.motion);
       this.physics.timestep = dt;
       this.physics.step();
       for (const [prop, home] of this.propHome) if (home === world) prop.sync();
