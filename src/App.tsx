@@ -8,8 +8,6 @@ import {
   useState,
 } from "react";
 
-const SAMPLE_DOG =
-  "https://images.unsplash.com/photo-1588022274363-3a53db91781d?auto=format&fit=crop&w=1400&q=88";
 const QUEST_DOG =
   "https://images.unsplash.com/photo-1589317005198-76826b470a72?auto=format&fit=crop&w=1800&q=88";
 const FOREST =
@@ -285,7 +283,7 @@ function DogNameEditor({
       value={name}
     />
   ) : (
-    <button aria-label={`Rename ${name}`} className="name-button" onClick={() => setEditing(true)} type="button">
+    <button aria-label={name ? `Rename ${name}` : "Name your dog"} className="name-button" onClick={() => setEditing(true)} type="button">
       <span>{name || "NAME YOUR DOG"}</span>
       <Icon name="edit" size={16} />
     </button>
@@ -410,9 +408,11 @@ function UploadScreen({
           </div>
         </div>
         <div className="photo-intro">
-          <div aria-hidden="true" className="future-dog-silhouette">
-            <img src={dogImage} />
-          </div>
+          {dogImage && (
+            <div aria-hidden="true" className="future-dog-silhouette">
+              <img src={dogImage} />
+            </div>
+          )}
           <div aria-hidden="true" className="gaussian-cloud">
             {Array.from({ length: 18 }).map((_, index) => <i key={index} />)}
           </div>
@@ -420,8 +420,18 @@ function UploadScreen({
           <span className="scribble scribble--one">YOUR DOG</span>
           <div className="photo-frame">
             <div className="photo-frame__inner">
-              <img alt="Your dog ready to become a game character" src={dogImage} />
-              <span className="scan-line" />
+              {dogImage ? (
+                <>
+                  <img alt="Your dog ready to become a game character" src={dogImage} />
+                  <span className="scan-line" />
+                </>
+              ) : (
+                <div className="photo-placeholder">
+                  <Icon name="upload" size={34} />
+                  <strong>YOUR DOG HERE</strong>
+                  <small>WAITING FOR A PHOTO</small>
+                </div>
+              )}
             </div>
           </div>
           <div className="transform-arrow">
@@ -429,7 +439,7 @@ function UploadScreen({
             <Icon name="arrow" size={25} />
             <strong>HERO</strong>
           </div>
-          <span className="impact-word">READY!</span>
+          {dogImage && <span className="impact-word">READY!</span>}
         </div>
       </div>
       <div className="red-slash" />
@@ -440,11 +450,13 @@ function UploadScreen({
 function QuestHub({
   dogImage,
   name,
+  displayName,
   setName,
   onNext,
 }: {
   dogImage: string;
   name: string;
+  displayName: string;
   setName: (name: string) => void;
   onNext: (quest: Quest) => void;
 }) {
@@ -506,11 +518,18 @@ function QuestHub({
             className={`hub-dog hub-dog--${activeQuest ?? "idle"} ${petting ? "hub-dog--petted" : ""}`}
             style={{ transform: `rotateY(${dogRotation / 4 + (activeQuest ? 8 : 0)}deg)` }}
           >
-            <img alt={`${name}, waiting to choose an adventure`} draggable="false" src={dogImage} />
+            {dogImage ? (
+              <img alt={`${displayName}, waiting to choose an adventure`} draggable="false" src={dogImage} />
+            ) : (
+              <div className="dog-placeholder">
+                <Icon name="upload" size={30} />
+                <strong>NO PHOTO YET</strong>
+              </div>
+            )}
             {petting && <span className="hub-heart">♥</span>}
           </div>
           <button
-            aria-label={`Pet ${name}`}
+            aria-label={`Pet ${displayName}`}
             className="hub-pet-target"
             onPointerDown={(event) => { event.stopPropagation(); setPetting(true); }}
             onPointerLeave={() => setPetting(false)}
@@ -575,6 +594,7 @@ function QuestHub({
 function QuestIntro({ dogImage, name, quest }: { dogImage: string; name: string; quest: Quest }) {
   const [entered, setEntered] = useState(false);
   const spatial = useSpatialPointer();
+  const story = quest.story(name || "your dog");
   return (
     <section
       className={`screen intro-screen ${entered ? "intro-screen--entered" : ""}`}
@@ -587,9 +607,11 @@ function QuestIntro({ dogImage, name, quest }: { dogImage: string; name: string;
         <img alt={`${quest.chapter.toLowerCase()} quest world`} src={quest.image} />
         <div className="world-vignette" />
         <div className="speed-streaks" />
-        <div className="quest-dog">
-          <img alt={`${name} inside the quest world`} src={dogImage} />
-        </div>
+        {dogImage && (
+          <div className="quest-dog">
+            <img alt={`${name || "Your dog"} inside the quest world`} src={dogImage} />
+          </div>
+        )}
         <div className="issue-badge">
           <small>DOGGIN’ AROUND</small>
           <strong>QUEST {quest.number}</strong>
@@ -598,7 +620,7 @@ function QuestIntro({ dogImage, name, quest }: { dogImage: string; name: string;
           <span className="chapter-label">{quest.chapter}</span>
           <NarrationBox>
             <strong>{quest.title}</strong>
-            <span>{quest.story(name)}</span>
+            <span>{story.charAt(0).toUpperCase() + story.slice(1)}</span>
           </NarrationBox>
         </div>
         <div className="controls">
@@ -621,13 +643,14 @@ function QuestIntro({ dogImage, name, quest }: { dogImage: string; name: string;
   );
 }
 
-const TRANSITION_MS = 700;
+const TRANSITION_MS = 950;
 
 export default function App() {
   const [screen, setScreen] = useState(1);
   const [wipeTo, setWipeTo] = useState<number | null>(null);
-  const [dogImage, setDogImage] = useState(SAMPLE_DOG);
-  const [dogName, setDogName] = useState("MILO");
+  const [dogImage, setDogImage] = useState("");
+  const [dogName, setDogName] = useState("");
+  const displayName = dogName.trim() || "YOUR DOG";
   const [quest, setQuest] = useState(QUESTS[0]);
 
   // A panel sweeps across, the screen swaps while it's covered, then it sweeps off.
@@ -653,6 +676,7 @@ export default function App() {
         <QuestHub
           dogImage={dogImage}
           name={dogName}
+          displayName={displayName}
           setName={setDogName}
           onNext={(chosen) => {
             setQuest(chosen);
@@ -660,7 +684,7 @@ export default function App() {
           }}
         />
       )}
-      {screen === 3 && <QuestIntro dogImage={dogImage} name={dogName} quest={quest} />}
+      {screen === 3 && <QuestIntro dogImage={dogImage} name={dogName.trim()} quest={quest} />}
       {wipeTo !== null && (
         <div aria-hidden="true" className="screen-wipe">
           <div className="screen-wipe__panel" />

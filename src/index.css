@@ -353,7 +353,7 @@ input:focus-visible {
   height: 100%;
   position: relative;
   overflow: hidden;
-  background: #a6c6d5;
+  background: #1c2230;
   clip-path: polygon(3% 3%, 100% 0, 96% 91%, 10% 100%, 0 15%);
 }
 
@@ -362,6 +362,34 @@ input:focus-visible {
   height: 100%;
   object-fit: cover;
   filter: saturate(1.08) contrast(1.05);
+}
+
+.photo-placeholder {
+  position: absolute;
+  inset: 8% 10%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 3px dashed rgba(255, 250, 240, 0.35);
+  color: var(--cream);
+  text-align: center;
+}
+
+.photo-placeholder svg {
+  color: var(--yellow);
+}
+
+.photo-placeholder strong {
+  font: italic 900 clamp(28px, 3.4vw, 46px)/0.9 "Barlow Condensed", sans-serif;
+}
+
+.photo-placeholder small {
+  color: rgba(255, 250, 240, 0.6);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.2em;
 }
 
 .photo-frame__inner::after {
@@ -769,7 +797,7 @@ input:focus-visible {
   inset: 0 -25vw;
   background: var(--ink);
   transform: translateX(110%) skewX(-12deg);
-  animation: screen-wipe 0.7s cubic-bezier(0.77, 0, 0.18, 1) forwards;
+  animation: screen-wipe 0.95s cubic-bezier(0.77, 0, 0.18, 1) forwards;
 }
 
 .screen-wipe__panel::before,
@@ -799,7 +827,7 @@ input:focus-visible {
   justify-items: center;
   color: var(--cream);
   opacity: 0;
-  animation: screen-wipe-label 0.7s ease forwards;
+  animation: screen-wipe-label 0.95s ease forwards;
 }
 
 .screen-wipe__label small {
@@ -1449,6 +1477,29 @@ input:focus-visible {
   filter: saturate(1.03) contrast(1.1);
   animation: dog-breathe 4.2s ease-in-out infinite;
   pointer-events: none;
+}
+
+.dog-placeholder {
+  position: absolute;
+  inset: 14% 16% 18%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 3px dashed rgba(255, 250, 240, 0.3);
+  border-radius: 50% 50% 46% 46%;
+  background: radial-gradient(ellipse, rgba(255, 211, 34, 0.08), transparent 70%);
+  color: rgba(255, 250, 240, 0.7);
+}
+
+.dog-placeholder svg {
+  color: var(--yellow);
+}
+
+.dog-placeholder strong {
+  font: italic 900 26px/1 "Barlow Condensed", sans-serif;
+  letter-spacing: 0.02em;
 }
 
 .hub-platform {
