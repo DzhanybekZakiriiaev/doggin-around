@@ -10,6 +10,7 @@ import {
   useState,
 } from "react";
 import { Game } from "./game/game";
+import { Pipeline } from "./Pipeline";
 
 // The menu around the walkable comic. Page 1: upload your comic. Page 2: Biscuit (the real splat dog,
 // rendered by the game) and the Storm Night comic, bad ending first. Panel 1 is entered: Biscuit leaps in,
@@ -580,6 +581,11 @@ function ComicHub({
   const spatial = useSpatialPointer();
   const [entering, setEntering] = useState(false);
 
+  // The way-in frames, fetched now so the cross-fades never wait on a download.
+  useEffect(() => {
+    for (const src of PORTAL_FRAMES) new Image().src = src;
+  }, []);
+
   // Biscuit leaps off his stand into panel 1, landing where he's painted, then the panel takes over.
   const enter = async (panel: HTMLElement) => {
     if (entering || !game) return;
@@ -597,6 +603,7 @@ function ComicHub({
       style={spatial.style}
     >
       <SpatialLayers word="STORM" />
+      <div aria-hidden="true" className="hub-texture" />
       <TopBar loading={loading} screen={2} />
       <div className="hub-header">
         <ComicHeading eyebrow="ISSUE NO. 01" title="STORM NIGHT" />
@@ -671,8 +678,16 @@ const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve
 
 type Portal = { rect: DOMRect; phase: "start" | "fill" | "morph" | "fade"; step: number };
 
+// Stepping into panel 1: the panel, Gemini's five in-betweens (all comic → barely inked) and the game's own
+// opening view (scripts/comic-transition.mjs paints the in-betweens from it).
+const PORTAL_FRAMES = [
+  "/comic/panel-1.jpg",
+  ...[1, 2, 3, 4, 5].map((n) => `/comic/transition/blend-${n}.jpg`),
+  "/comic/transition/game-start.jpg",
+];
+
 export default function App() {
-  const [screen, setScreen] = useState<1 | 2 | "game">(1);
+  const [screen, setScreen] = useState<1 | "pipeline" | 2 | "game">(1);
   const [splash, setSplash] = useState(true);
   const endSplash = useRef(() => setSplash(false)).current;
   const [wipeTo, setWipeTo] = useState<number | null>(null);
@@ -714,7 +729,7 @@ export default function App() {
   }, [game]);
 
   // A panel sweeps across, the screen swaps while it's covered, then it sweeps off.
-  const wipe = (target: 1 | 2, label: number) => {
+  const wipe = (target: 1 | "pipeline" | 2, label: number) => {
     if (wipeTo !== null) return;
     setWipeTo(label);
     window.setTimeout(() => {
@@ -749,9 +764,13 @@ export default function App() {
       game.player.inputEnabled = false; // hold the view on the frame being faded into
       await game.whenDrawn();
     })();
-    for (const step of [1, 2, 3]) {
+    // Panel 1 through the five painted in-betweens, cross-fading in quick overlapping steps; the last one
+    // (barely inked) waits for the game to have drawn, then the capture of its opening view comes up.
+    const last = PORTAL_FRAMES.length - 1;
+    for (let step = 1; step <= last; step++) {
+      if (step === last) await live;
       setPortal((current) => current && { ...current, phase: "morph", step });
-      await sleep(step === 1 ? 650 : 520);
+      await sleep(step === 1 ? 600 : 300);
     }
     await live;
     setScreen("game");
@@ -773,8 +792,10 @@ export default function App() {
   return (
     <main className={`game-shell screen-${screen}`}>
       {screen === 1 && (
-        <UploadScreen comic={comic} loading={loading} onComic={setComicFile} onNext={() => wipe(2, 2)} />
+        <UploadScreen comic={comic} loading={loading} onComic={setComicFile} onNext={() => wipe("pipeline", 1)} />
       )}
+      {/* Bringing it to life: the pipeline from the comic to the 3D dog, then on to the comic page. */}
+      {screen === "pipeline" && <Pipeline comic={comic} onDone={() => wipe(2, 2)} />}
       {screen === 2 && (
         <ComicHub
           ending={ending}
@@ -796,11 +817,18 @@ export default function App() {
               : undefined
           }
         >
-          {/* Bottom to top: the game's opening view, then the in-betweens, then the panel itself. */}
-          <img alt="" className="portal-frame" src="/comic/transition/game-start.jpg" />
-          <img alt="" className={`portal-frame ${portal.step >= 3 ? "portal-frame--gone" : ""}`} src="/comic/transition/blend-2.jpg" />
-          <img alt="" className={`portal-frame ${portal.step >= 2 ? "portal-frame--gone" : ""}`} src="/comic/transition/blend-1.jpg" />
-          <img alt="" className={`portal-frame portal-frame--panel ${portal.step >= 1 ? "portal-frame--gone" : ""}`} src="/comic/panel-1.jpg" />
+          {/* Bottom to top: the game's opening view, then the in-betweens, then the panel itself; each step uncovers the next. */}
+          {PORTAL_FRAMES.map((src, i) => ({ src, i }))
+            .reverse()
+            .map(({ src, i }) => (
+              <img
+                alt=""
+                className={`portal-frame ${i === 0 ? "portal-frame--panel" : ""} ${i < PORTAL_FRAMES.length - 1 && portal.step > i ? "portal-frame--gone" : ""}`}
+                key={src}
+                src={src}
+              />
+            ))}
+          <i className="portal-rain" />
         </div>
       )}
       {complete && <QuestComplete name={displayName} onBack={backToComic} />}

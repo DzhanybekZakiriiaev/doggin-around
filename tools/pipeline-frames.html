@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pipeline frames</title>
+    <style>
+      body { margin: 0; padding: 16px; background: #f6f1e3; font: 14px system-ui, sans-serif; }
+      button { margin: 0 8px 12px 0; padding: 8px 14px; font: inherit; cursor: pointer; }
+      canvas { display: block; max-width: 100%; margin-bottom: 12px; background: repeating-conic-gradient(#ddd 0 25%, #fff 0 50%) 0 0 / 20px 20px; }
+    </style>
+  </head>
+  <body>
+    <p>Renders the real dog (public/models/dog-animated.glb) into the sprite strips the pipeline screen plays for
+      its rig, mesh and run steps. Download them into <code>public/pipeline/</code>.</p>
+    <div id="buttons"></div>
+    <div id="previews"></div>
+    <script type="module" src="/src/tools/pipeline-frames.ts"></script>
+  </body>
+</html>

@@ -2973,3 +2973,144 @@ input:focus-visible {
     border-width .75s ease,
     clip-path .75s cubic-bezier(.7, 0, .2, 1);
 }
+
+
+/* ======================================================================
+   Polish: page 1's placeholder whole, page 2's comic bigger on a night
+   that isn't empty (halftone, rain, grain, now and then lightning), and
+   rain over the way into panel 1.
+   ====================================================================== */
+
+:root {
+  /* Short slanting streaks, tiled; they fall down and to the left. */
+  --rain-tile: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cg stroke='%23b8cdf0' stroke-width='1.3' stroke-linecap='round'%3E%3Cpath d='M30 12l-6 30M96 70l-6 30M168 22l-6 30M206 120l-6 30M58 140l-6 30M132 168l-6 30M12 196l-5 24M150 96l-4 20M80 20l-4 20M190 186l-4 20'/%3E%3C/g%3E%3C/svg%3E");
+  --grain-tile: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.45'/%3E%3C/svg%3E");
+}
+
+/* Page 1: the placeholder comic shown whole, inside the slanted frame's cut corners (object-fit: cover and
+   the frame's clip-path were cutting off its speech bubbles). */
+.photo-frame img.photo-placeholder {
+  object-fit: contain;
+  padding: 5% 6% 11% 10%;
+  background: #fff;
+}
+
+/* Page 2: the comic takes most of the page. */
+@media (min-width: 901px) {
+  .hub-screen .page-zone {
+    top: 13%;
+    right: 2%;
+    bottom: 4%;
+    width: 60%;
+  }
+
+  .hub-screen .hub-companion {
+    width: 37%;
+  }
+}
+
+.comic-sheet {
+  width: min(100cqw - 30px, (100cqh - 30px) * 1.36, 1500px);
+}
+
+/* Panel 1: the caption keeps clear of the KRAK! */
+.comic-cell--one .comic-caption--top {
+  max-width: 46%;
+}
+
+.comic-cell--one .comic-sfx {
+  left: 14%;
+  top: 14%;
+}
+
+/* Page 2's night: halftone dots towards the edges, rain, grain, and a lightning flicker every few seconds. */
+.hub-texture {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.hub-texture::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle, rgba(246, 241, 227, 0.2) 1.1px, transparent 1.6px) 0 0 / 10px 10px;
+  mask-image: radial-gradient(ellipse at 62% 52%, transparent 30%, black 95%);
+}
+
+.hub-texture::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: var(--rain-tile), var(--rain-tile), var(--grain-tile);
+  background-size: 220px 220px, 340px 340px, 180px 180px;
+  opacity: 0.45;
+  animation: hub-rain 1.1s linear infinite;
+}
+
+@keyframes hub-rain {
+  from {
+    background-position: 0 0, 0 0, 0 0;
+  }
+  to {
+    background-position: -40px 220px, -62px 340px, 0 0;
+  }
+}
+
+.hub-screen::after {
+  /* the screens' ink halftone doesn't show on the night; this layer is the lightning instead */
+  background: radial-gradient(ellipse at 82% -10%, rgba(200, 220, 255, 0.55), transparent 62%);
+  mask-image: none;
+  opacity: 0;
+  animation: hub-lightning 12s linear infinite;
+}
+
+@keyframes hub-lightning {
+  0%, 90%, 95%, 100% {
+    opacity: 0;
+  }
+  91% {
+    opacity: 0.9;
+  }
+  92% {
+    opacity: 0.2;
+  }
+  93.5% {
+    opacity: 0.7;
+  }
+}
+
+/* The way into panel 1: rain over the frames, so a wait for the game never looks frozen. */
+.portal-rain {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  background-image: var(--rain-tile), var(--rain-tile);
+  background-size: 260px 260px, 400px 400px;
+  opacity: 0.6;
+  animation: portal-rain 0.55s linear infinite;
+}
+
+@keyframes portal-rain {
+  from {
+    background-position: 0 0, 0 0;
+  }
+  to {
+    background-position: -48px 260px, -72px 400px;
+  }
+}
+
+.portal-frame {
+  transition: opacity .5s ease, transform .7s cubic-bezier(.4, 0, .2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hub-texture::after,
+  .hub-screen::after,
+  .portal-rain {
+    animation: none;
+  }
+}

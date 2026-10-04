@@ -16,6 +16,7 @@
     "comic": "node scripts/comic-panels.mjs",
     "comic-page": "node scripts/comic-page.mjs",
     "comic-transition": "node scripts/comic-transition.mjs",
+    "pipeline-art": "node scripts/pipeline-art.mjs",
     "dog-clips": "node --experimental-transform-types --no-warnings=ExperimentalWarning scripts/dog-clips.mjs"
   },
   "dependencies": {

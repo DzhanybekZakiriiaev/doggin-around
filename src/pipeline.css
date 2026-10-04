@@ -1,0 +1,607 @@
+/* ======================================================================
+   The pipeline between the upload and the comic: a printed comic page
+   with one big panel where each step plays, a caption box naming it,
+   the log beside it and the five steps along the bottom.
+   ====================================================================== */
+
+.pipeline-screen {
+  height: 100vh;
+  min-height: 560px;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(240px, 22vw, 340px);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "header header"
+    "stage log"
+    "timeline timeline";
+  gap: 18px 26px;
+  padding: 22px clamp(18px, 3vw, 48px) 24px;
+  color: var(--ink);
+  background:
+    linear-gradient(100deg, transparent 0 82%, var(--yellow) 82.1% 100%),
+    linear-gradient(176deg, transparent 0 93%, var(--red) 93.1%),
+    var(--paper);
+}
+
+.pipeline-screen::after {
+  /* the page's halftone, denser towards the corners */
+  opacity: 0.16;
+  mask-image: radial-gradient(ellipse at 45% 50%, transparent 35%, black 100%);
+}
+
+/* Header */
+.pipeline-header {
+  grid-area: header;
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+}
+
+.pipeline-eyebrow {
+  padding: 5px 10px 4px;
+  background: var(--yellow);
+  border: 2px solid var(--ink);
+  font: 800 11px/1 "Inter", sans-serif;
+  letter-spacing: 0.16em;
+  transform: rotate(-1.5deg);
+}
+
+.pipeline-header h1 {
+  margin: 0;
+  font: italic 900 clamp(34px, 4.4vw, 66px)/0.9 "Barlow Condensed", sans-serif;
+  letter-spacing: -0.01em;
+  text-shadow: 4px 4px 0 var(--red);
+}
+
+/* The big panel */
+.pipeline-stage {
+  grid-area: stage;
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(rgba(10, 11, 15, 0.07) 1px, transparent 1.3px) 0 0 / 9px 9px,
+    #fffdf6;
+  border: 4px solid var(--ink);
+  box-shadow: 12px 12px 0 var(--ink);
+  clip-path: polygon(0 0, 100% 0.8%, 99.4% 100%, 0.5% 99%);
+  transform: rotate(-0.5deg);
+}
+
+.pipeline-caption {
+  position: absolute;
+  z-index: 6;
+  left: 18px;
+  top: 16px;
+  display: grid;
+  padding: 7px 12px 6px;
+  background: #fff3b8;
+  border: 3px solid var(--ink);
+  box-shadow: 4px 4px 0 var(--ink);
+  transform: rotate(-1deg);
+  animation: pl-caption-in 0.45s cubic-bezier(0.18, 0.9, 0.25, 1.3) both;
+}
+
+.pipeline-caption small {
+  color: var(--red);
+  font: 800 10px/1.2 "Inter", sans-serif;
+  letter-spacing: 0.14em;
+}
+
+.pipeline-caption strong {
+  font: italic 900 clamp(20px, 2.1vw, 32px)/1 "Barlow Condensed", sans-serif;
+}
+
+@keyframes pl-caption-in {
+  from {
+    opacity: 0;
+    transform: translateX(-24px) rotate(-4deg);
+  }
+}
+
+/* Each step is a layer over the others; the current one is on. */
+.pl-layer {
+  position: absolute;
+  inset: 78px 28px 26px;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr); /* a definite height for the page and sprites to fill */
+  place-items: center;
+  opacity: 0;
+  transform: scale(0.96);
+  transition: opacity 0.55s ease, transform 0.7s cubic-bezier(0.18, 0.9, 0.25, 1);
+  pointer-events: none;
+}
+
+.pl-layer.is-on {
+  opacity: 1;
+  transform: none;
+}
+
+.pl-layer.is-past {
+  transform: scale(1.04);
+}
+
+/* Things that pop in on cue */
+.pl-extracted,
+.pl-sfx,
+.pl-view,
+.pl-tags li,
+.pl-clips li {
+  opacity: 0;
+  transform: scale(0.7) rotate(var(--tilt, 0deg));
+  transition: opacity 0.3s ease, transform 0.5s cubic-bezier(0.18, 0.9, 0.25, 1.35);
+}
+
+.pl-pop {
+  opacity: 1;
+  transform: scale(1) rotate(var(--tilt, 0deg));
+}
+
+.pl-sfx {
+  --tilt: 10deg;
+  position: absolute;
+  z-index: 4;
+  right: 6%;
+  top: 6%;
+  color: var(--yellow);
+  font: 400 clamp(34px, 4vw, 64px)/1 Bangers, Impact, sans-serif;
+  letter-spacing: 0.03em;
+  -webkit-text-stroke: 2px var(--ink);
+  text-shadow: 4px 4px 0 var(--ink);
+}
+
+/* 1. Reading the comic: the page, scanned, boxed, then lifted from */
+.pl-page {
+  position: relative;
+  height: 100%;
+  transform-origin: 54.7% 31.5%; /* the hero in panel 1 */
+  transition: transform 1.1s cubic-bezier(0.6, 0, 0.3, 1), opacity 0.6s ease 0.5s;
+}
+
+.pl-page img {
+  display: block;
+  height: 100%;
+  border: 3px solid var(--ink);
+  box-shadow: 6px 6px 0 rgba(10, 11, 15, 0.35);
+}
+
+.pl-page--lift {
+  transform: scale(2.8);
+  opacity: 0;
+}
+
+.pl-scan {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 14%;
+  background: linear-gradient(to bottom, transparent, rgba(29, 114, 234, 0.32) 85%, var(--blue) 86% 88%, transparent 88%);
+  animation: pl-scan 1.5s ease-in-out 2 both;
+}
+
+@keyframes pl-scan {
+  from {
+    transform: translateY(-100%);
+  }
+  to {
+    transform: translateY(715%);
+  }
+}
+
+.pl-box {
+  position: absolute;
+  border: 3px solid var(--blue);
+  background: rgba(29, 114, 234, 0.08);
+  opacity: 0;
+  transform: scale(1.4);
+  transition: opacity 0.2s ease, transform 0.35s cubic-bezier(0.18, 0.9, 0.25, 1.2);
+}
+
+.pl-box--on {
+  opacity: 1;
+  transform: none;
+}
+
+.pl-box b {
+  position: absolute;
+  left: -3px;
+  bottom: 100%;
+  padding: 2px 5px 1px;
+  background: var(--blue);
+  color: #fff;
+  font: 800 9px/1.2 "Inter", sans-serif;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.pl-box--hero {
+  border-color: var(--red);
+  background: rgba(240, 68, 49, 0.1);
+}
+
+.pl-box--hero b {
+  background: var(--red);
+}
+
+.pl-extracted {
+  position: absolute;
+  height: 92%;
+  mix-blend-mode: multiply;
+}
+
+/* 2. From every side */
+.pl-views {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 18px 16px;
+  align-items: stretch;
+}
+
+.pl-view {
+  --tilt: -1.5deg;
+  position: relative;
+  min-height: 0;
+  margin: 0;
+  display: grid;
+  background: #fff;
+  border: 3px solid var(--ink);
+  box-shadow: 5px 5px 0 var(--ink);
+}
+
+.pl-view:nth-child(even) {
+  --tilt: 1.5deg;
+}
+
+.pl-view img {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  object-fit: contain;
+  mix-blend-mode: multiply;
+}
+
+.pl-view figcaption {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  padding: 3px 7px 2px;
+  background: var(--ink);
+  color: var(--cream);
+  font: 800 10px/1 "Inter", sans-serif;
+  letter-spacing: 0.14em;
+}
+
+.pl-meter {
+  grid-column: 1 / -1;
+  width: min(520px, 100%);
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: baseline;
+  gap: 4px 14px;
+}
+
+.pl-meter span {
+  font: 800 11px/1 "Inter", sans-serif;
+  letter-spacing: 0.16em;
+}
+
+.pl-meter strong {
+  justify-self: end;
+  font: italic 900 30px/1 "Barlow Condensed", sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+.pl-meter i {
+  grid-column: 1 / -1;
+  height: 12px;
+  border: 3px solid var(--ink);
+  background: linear-gradient(90deg, var(--blue) calc(var(--fill) * 100%), #fff calc(var(--fill) * 100%));
+}
+
+/* 3-5. Rendered from the real model: sprite strips stepped through */
+.pl-turn,
+.pl-run {
+  grid-template-columns: minmax(0, auto) minmax(0, 260px);
+  gap: clamp(16px, 3vw, 48px);
+}
+
+.pl-sprite {
+  height: min(100%, 52vh);
+  aspect-ratio: 1;
+  background-repeat: no-repeat;
+}
+
+.pl-sprite--24 {
+  background-size: 2400% 100%;
+  animation: pl-sprite-24 2.8s steps(24) infinite;
+}
+
+.pl-sprite--16 {
+  background-size: 1600% 100%;
+  animation: pl-sprite-16 0.62s steps(16) infinite;
+}
+
+@keyframes pl-sprite-24 {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: calc(24 / 23 * 100%) 0;
+  }
+}
+
+@keyframes pl-sprite-16 {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: calc(16 / 15 * 100%) 0;
+  }
+}
+
+.pl-tags {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 12px;
+}
+
+.pl-tags li {
+  --tilt: -1deg;
+  justify-self: start;
+  display: grid;
+  padding: 7px 11px 6px;
+  background: #fff;
+  border: 3px solid var(--ink);
+  box-shadow: 4px 4px 0 var(--ink);
+  font: 800 10px/1.2 "Inter", sans-serif;
+  letter-spacing: 0.14em;
+}
+
+.pl-tags li:nth-child(even) {
+  --tilt: 1deg;
+}
+
+.pl-tags b {
+  font: italic 900 30px/1 "Barlow Condensed", sans-serif;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.pl-run {
+  grid-template-columns: 1fr;
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.pl-run .pl-sprite {
+  position: relative;
+  z-index: 1;
+  height: min(100%, 46vh);
+}
+
+.pl-speed {
+  position: absolute;
+  inset: 18% 8% 30%;
+  background: repeating-linear-gradient(180deg, transparent 0 22px, rgba(10, 11, 15, 0.22) 22px 25px, transparent 25px 46px);
+  mask-image: linear-gradient(90deg, transparent, black 30%, black 55%, transparent);
+  animation: pl-speed 0.35s linear infinite;
+}
+
+@keyframes pl-speed {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 0 46px;
+  }
+}
+
+.pl-clips {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.pl-clips li {
+  padding: 5px 9px 4px;
+  background: #fff;
+  border: 2px solid var(--ink);
+  font: 800 11px/1 "Inter", sans-serif;
+  letter-spacing: 0.08em;
+}
+
+.pl-clips li.pl-clip--live {
+  background: var(--yellow);
+  box-shadow: 3px 3px 0 var(--ink);
+}
+
+.pl-sfx--woof {
+  --tilt: -8deg;
+  right: auto;
+  left: 8%;
+  top: 10%;
+  color: var(--red);
+}
+
+/* The log */
+.pipeline-log {
+  grid-area: log;
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+  padding: 34px 16px 16px;
+  background: var(--ink);
+  color: var(--cream);
+  border: 4px solid var(--ink);
+  box-shadow: 10px 10px 0 var(--red);
+  transform: rotate(0.8deg);
+}
+
+.pipeline-log__title {
+  position: absolute;
+  left: 12px;
+  top: -4px;
+  padding: 5px 9px 4px;
+  background: var(--yellow);
+  color: var(--ink);
+  font: 800 10px/1 "Inter", sans-serif;
+  letter-spacing: 0.16em;
+  transform: rotate(-2deg);
+}
+
+.pipeline-log ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 9px;
+  font: 600 12px/1.35 ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+
+.pipeline-log li {
+  animation: pl-log-in 0.35s ease both;
+}
+
+.pipeline-log time {
+  color: var(--yellow);
+}
+
+.pipeline-log li:last-child::after {
+  content: "▍";
+  color: var(--yellow);
+  animation: pl-blink 0.8s steps(2) infinite;
+}
+
+@keyframes pl-log-in {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+}
+
+@keyframes pl-blink {
+  to {
+    visibility: hidden;
+  }
+}
+
+/* The steps along the bottom */
+.pipeline-timeline {
+  grid-area: timeline;
+  position: relative;
+  margin: 0;
+  padding: 0 4%;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+}
+
+.pipeline-timeline::before,
+.pipeline-timeline__fill {
+  content: "";
+  position: absolute;
+  left: 14%;
+  right: 14%;
+  top: 19px;
+  height: 6px;
+  background: rgba(10, 11, 15, 0.15);
+}
+
+.pipeline-timeline__fill {
+  background: var(--ink);
+  transform-origin: left;
+  transform: scaleX(var(--progress));
+}
+
+.pipeline-timeline li {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  font: italic 900 clamp(14px, 1.4vw, 20px)/1 "Barlow Condensed", sans-serif;
+  color: rgba(10, 11, 15, 0.45);
+  transition: color 0.3s ease;
+}
+
+.pipeline-timeline li span {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 4px solid currentColor;
+  border-radius: 50%;
+  background: var(--paper);
+  font: italic 900 22px/1 "Barlow Condensed", sans-serif;
+  transition: background 0.3s ease, transform 0.4s cubic-bezier(0.18, 0.9, 0.25, 1.4);
+}
+
+.pipeline-timeline li.is-on,
+.pipeline-timeline li.is-past {
+  color: var(--ink);
+}
+
+.pipeline-timeline li.is-on span {
+  background: var(--yellow);
+  transform: scale(1.15) rotate(-6deg);
+  box-shadow: 3px 3px 0 var(--ink);
+}
+
+.pipeline-timeline li.is-past span {
+  background: var(--ink);
+  color: var(--yellow);
+  border-color: var(--ink);
+}
+
+.pipeline-skip {
+  position: absolute;
+  right: clamp(18px, 3vw, 48px);
+  top: 26px;
+  padding: 6px 10px 5px;
+  border: 2px solid var(--ink);
+  background: var(--paper);
+  font: 800 11px/1 "Inter", sans-serif;
+  letter-spacing: 0.14em;
+  cursor: pointer;
+}
+
+.pipeline-skip:hover {
+  background: var(--yellow);
+}
+
+@media (max-width: 900px) {
+  .pipeline-screen {
+    height: auto;
+    min-height: 100vh;
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 60vh auto auto;
+    grid-template-areas: "header" "stage" "timeline" "log";
+  }
+
+  .pipeline-log {
+    max-height: 220px;
+  }
+
+  .pl-views {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pl-turn {
+    grid-template-columns: 1fr;
+  }
+
+  .pl-tags {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pl-scan,
+  .pl-speed {
+    animation: none;
+  }
+}

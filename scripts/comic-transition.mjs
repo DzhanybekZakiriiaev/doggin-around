@@ -5,11 +5,11 @@
 //
 // The last frame is the game's own opening view (public/comic/transition/game-start.jpg, captured from the
 // game: open it with `npm run dev`, enter a world, then in the console `copy(await game.captureFrame())`
-// and save the data URL as that file). The in-betweens repaint that exact view, first almost fully in the
-// comic's style, then only lightly, so the menu can cross-fade panel 1 → comic version of the game view →
-// half-way → the real game without anything jumping.
+// and save the data URL as that file). The in-betweens repaint that exact view in five steps from fully in
+// the comic's style to barely touched, so the menu can cross-fade panel 1 → comic version of the game view →
+// … → the real game without anything jumping.
 //
-// Output: public/comic/transition/blend-1.jpg (mostly comic), blend-2.jpg (mostly game)
+// Output: public/comic/transition/blend-1.jpg (all comic) … blend-5.jpg (nearly the game)
 
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -34,6 +34,7 @@ const KEEP =
   'bandana sitting by the hole, and the two first-person hands in yellow raincoat sleeves at the bottom. It must ' +
   'line up pixel for pixel with the first image so the two can be cross-faded. 16:9, no text, no border.';
 
+// From the comic (blend-1) to the game (blend-5): each a step less inked than the one before.
 const FRAMES = [
   {
     id: 'blend-1',
@@ -45,9 +46,30 @@ const FRAMES = [
   {
     id: 'blend-2',
     prompt:
-      'Repaint the first attached image (a frame from a 3D game) halfway towards the comic-book style of the second ' +
-      'attached image: keep its soft painterly 3D look and lighting, and add only thin ink outlines and a faint ' +
-      `halftone texture, with a little light rain. ${KEEP}`,
+      'Repaint the first attached image (a frame from a 3D game) mostly in the comic-book style of the second ' +
+      'attached image: bold black ink outlines and halftone shading, flat colours, with a little of the original\'s ' +
+      `soft painterly light showing through, and slanting rain. ${KEEP}`,
+  },
+  {
+    id: 'blend-3',
+    prompt:
+      'Repaint the first attached image (a frame from a 3D game) exactly halfway between its own soft painterly 3D ' +
+      'look and the comic-book style of the second attached image: medium ink outlines, light halftone dots in the ' +
+      `shadows only, the original lighting and colours, and light rain. ${KEEP}`,
+  },
+  {
+    id: 'blend-4',
+    prompt:
+      'Repaint the first attached image (a frame from a 3D game) only slightly towards the comic-book style of the ' +
+      'second attached image: keep its soft painterly 3D look, lighting and colours, and add just thin ink outlines ' +
+      `on the main shapes and a faint halftone texture, with a little light rain. ${KEEP}`,
+  },
+  {
+    id: 'blend-5',
+    prompt:
+      'Reproduce the first attached image (a frame from a 3D game) almost unchanged: the same soft painterly 3D look, ' +
+      'lighting and colours, with only the faintest thin ink lines on the outlines of the main shapes, a hint of ' +
+      `the comic style of the second attached image. ${KEEP}`,
   },
 ];
 
