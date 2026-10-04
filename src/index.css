@@ -755,39 +755,77 @@ input:focus-visible {
 }
 
 /* Screen transitions */
-.transition-slice {
+/* Screen transition: a slab sweeps across, the screen swaps underneath, then it sweeps off */
+.screen-wipe {
   position: fixed;
   z-index: 100;
-  left: -20vw;
-  width: 0;
+  inset: 0;
+  overflow: hidden;
   pointer-events: none;
-  transform: skewX(-11deg);
 }
 
-.transition-slice--one {
+.screen-wipe__panel {
+  position: absolute;
+  inset: 0 -25vw;
+  background: var(--ink);
+  transform: translateX(110%) skewX(-12deg);
+  animation: screen-wipe 0.7s cubic-bezier(0.77, 0, 0.18, 1) forwards;
+}
+
+.screen-wipe__panel::before,
+.screen-wipe__panel::after {
+  content: "";
+  position: absolute;
   top: 0;
-  height: 38vh;
+  bottom: 0;
+  width: 14px;
   background: var(--yellow);
 }
 
-.transition-slice--two {
-  top: 31vh;
-  height: 42vh;
+.screen-wipe__panel::before {
+  left: 0;
+}
+
+.screen-wipe__panel::after {
+  right: 0;
   background: var(--red);
-  transition-delay: 0.06s;
 }
 
-.transition-slice--three {
-  bottom: 0;
-  height: 36vh;
-  background: var(--ink);
-  transition-delay: 0.12s;
+.screen-wipe__label {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  color: var(--cream);
+  opacity: 0;
+  animation: screen-wipe-label 0.7s ease forwards;
 }
 
-.is-transitioning .transition-slice {
-  width: 145vw;
-  transition: width 0.48s cubic-bezier(0.7, 0, 0.3, 1);
+.screen-wipe__label small {
+  color: var(--yellow);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.3em;
 }
+
+.screen-wipe__label strong {
+  font: italic 900 clamp(64px, 10vw, 120px)/0.9 "Barlow Condensed", sans-serif;
+}
+
+@keyframes screen-wipe {
+  0% { transform: translateX(110%) skewX(-12deg); }
+  42%, 58% { transform: translateX(0) skewX(-12deg); }
+  100% { transform: translateX(-110%) skewX(-12deg); }
+}
+
+@keyframes screen-wipe-label {
+  0%, 30% { opacity: 0; transform: scale(0.92); }
+  45%, 58% { opacity: 1; transform: scale(1); }
+  72%, 100% { opacity: 0; transform: scale(1.04); }
+}
+
+
 
 @keyframes screen-in {
   from { opacity: 0; transform: scale(1.025); }
