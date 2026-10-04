@@ -13,6 +13,7 @@ const JUMP_SPEED = 5.5;
 const BASE_LOOK_SENSITIVITY = 0.0018; // radians per pixel at look speed 1
 const KEY_TURN_SPEED = 2; // radians per second with the arrow keys
 const MAX_PITCH = THREE.MathUtils.degToRad(80);
+const CROUCH_DROP = 0.5; // crouching eye height: EYE_HEIGHT minus this (high enough to look down on a dog)
 
 /** First-person walker: a Rapier kinematic capsule that climbs steps and follows the ground. */
 export class FirstPersonPlayer {
@@ -21,12 +22,20 @@ export class FirstPersonPlayer {
   lookSpeed = 1;
   /** False while a cutscene or transition owns the camera. */
   inputEnabled = true;
+  /** Kneel (e.g. to pet Biscuit); eases down and back up. */
+  crouching = false;
+  /** While set, the view eases round to look at this point (kept live by whoever set it)… */
+  focus?: THREE.Vector3;
+  /** …with it this far below (radians) and to the left of the centre of the view, so it sits where the hands work. */
+  focusTilt = 0;
+  focusTurn = 0;
 
   /** Read by the first-person hands for bob and sway. */
   readonly motion = { speed: 0, grounded: true, yawVelocity: 0, pitchVelocity: 0 };
 
   private yaw = 0;
   private pitch = 0;
+  private crouch = 0;
   private lookDelta = new THREE.Vector2();
   private verticalSpeed = 0;
   private readonly keys = new Set<string>();
@@ -88,6 +97,11 @@ export class FirstPersonPlayer {
     this.lookDelta.set(0, 0);
   }
 
+  /** Which way the player faces (radians about Y; 0 looks down -Z). */
+  get heading() {
+    return this.yaw;
+  }
+
   /** Feet position, for distance checks. */
   get feet(): THREE.Vector3 {
     const t = this.body.translation();
@@ -110,6 +124,7 @@ export class FirstPersonPlayer {
     this.lookDelta.set(0, 0);
     this.yaw += yawStep;
     this.pitch = THREE.MathUtils.clamp(this.pitch + pitchStep, -MAX_PITCH, MAX_PITCH);
+    if (this.focus) this.lookToward(this.focus, dt);
     this.motion.yawVelocity = dt > 0 ? yawStep / dt : 0;
     this.motion.pitchVelocity = dt > 0 ? pitchStep / dt : 0;
 
@@ -149,7 +164,20 @@ export class FirstPersonPlayer {
     }
 
     const next = this.body.nextTranslation();
-    this.camera.position.set(next.x, next.y - CENTER_HEIGHT + EYE_HEIGHT, next.z);
+    this.crouch = THREE.MathUtils.damp(this.crouch, this.crouching ? 1 : 0, 5, dt);
+    this.camera.position.set(next.x, next.y - CENTER_HEIGHT + EYE_HEIGHT - this.crouch * CROUCH_DROP, next.z);
     this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
+  }
+
+  private lookToward(point: THREE.Vector3, dt: number) {
+    const eye = this.camera.position;
+    const dx = point.x - eye.x;
+    const dz = point.z - eye.z;
+    const yaw = Math.atan2(-dx, -dz) - this.focusTurn;
+    const pitch = Math.atan2(point.y - eye.y, Math.hypot(dx, dz)) + this.focusTilt;
+    const turn = Math.atan2(Math.sin(yaw - this.yaw), Math.cos(yaw - this.yaw));
+    const ease = 1 - Math.exp(-6 * dt);
+    this.yaw += turn * ease;
+    this.pitch = THREE.MathUtils.clamp(this.pitch + (pitch - this.pitch) * ease, -MAX_PITCH, MAX_PITCH);
   }
 }

@@ -1,14 +1,17 @@
+import { SparkRenderer, type SplatMesh } from '@sparkjsdev/spark';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { type Mood, MoodLights } from './lighting';
 import { WALK_SPEED } from './player';
+import { Matcap, rigidSplats, SkinnedSplats } from './splat-hands';
 import { outlineMaterial } from './toon';
 
 // First-person hands, rendered as a separate layer over the world so they never clip into walls.
 // Shape: the rigged WebXR generic hand (MIT, @webxr-input-profiles/assets). Look: matcaps painted by
-// Gemini from a reference of these hands in the cabin's illustration style (npm run hands-style),
-// plus an ink outline. Poses and actions are procedural, driving the finger joints directly.
+// Gemini from a reference of these hands in the cabin's illustration style (npm run hands-style). Drawn
+// either as Gaussian splats coloured from those matcaps (the default, to sit with the splat world; see
+// splat-hands.ts) or as the inked mesh. Poses and actions are procedural, driving the finger joints directly.
 
 const HAND_MODEL = '/models/hands/right.glb';
 const SKIN_MATCAP = '/textures/hands/skin.png';
@@ -33,8 +36,10 @@ interface Pose {
 const REST: Pose = { x: 0.15, y: -0.15, z: -0.36, rx: 0.32, ry: 0.3, rz: -0.3, curl: 0.3, thumb: 0.3, wrist: 0, point: 0 };
 /** The right hand while carrying something: a loose fist, thumb up, a little higher. */
 const HOLD: Pose = { x: 0.17, y: -0.16, z: -0.38, rx: 0.25, ry: 0.35, rz: -1.1, curl: 0.85, thumb: 0.75, wrist: 0, point: 0 };
+/** The left hand lowered out of view (it is mirrored, so +x moves it outwards). */
+const LEFT_LOWERED: Pose = { ...REST, x: 0.2, y: -0.26, z: -0.32, rx: 0.1 };
 /** Palm flat and down, over something at arm's length (a dog's back, later). */
-const PET: Pose = { x: 0.07, y: -0.165, z: -0.46, rx: -0.25, ry: 0.15, rz: -0.15, curl: 0.15, thumb: 0.25, wrist: 0.15, point: 0 };
+const PET: Pose = { x: 0.07, y: -0.165, z: -0.46, rx: -0.25, ry: 0.7, rz: -0.15, curl: 0.15, thumb: 0.25, wrist: 0.15, point: 0 };
 /** How far the grip (middle of the palm) sits in front of the wrist. */
 const GRIP_OFFSET = 0.085;
 /** Where the right shoulder is, in camera space: the sleeve always runs from the wrist towards it. */
@@ -348,6 +353,8 @@ interface Rig {
   root: THREE.Group;
   /** Separate from `root`: it follows the wrist but points at the shoulder, never into the camera. */
   sleeve: THREE.Group;
+  /** The inked mesh look (hand, outline, sleeve parts); hidden when drawn as splats. */
+  meshes: THREE.Mesh[];
   wrist: THREE.Group;
   /** Where a held item sits: the middle of the palm, long axis across the hand (X). */
   socket: THREE.Group;
@@ -367,6 +374,9 @@ export class FirstPersonHands {
   private right?: Rig;
   private left?: Rig;
   private readonly materials: THREE.MeshMatcapMaterial[] = [];
+  private readonly skins: SkinnedSplats[] = [];
+  private readonly splatMeshes: SplatMesh[] = [];
+  private splatLook = true;
   private readonly tint = new THREE.Color(0xffffff);
   /** The hands carry painted light (matcaps), but held toon props need real lights, matched to the world. */
   private readonly lights = new MoodLights();
@@ -379,8 +389,11 @@ export class FirstPersonHands {
   private held?: THREE.Object3D;
   private readonly petting = { active: false, weight: 0, phase: 0, speed: 0.8, target: undefined as THREE.Vector3 | undefined };
 
-  constructor() {
+  /** With `renderer`, the hands can be drawn as Gaussian splats (they need their own SparkRenderer in this scene). */
+  constructor(private readonly renderer?: THREE.WebGLRenderer) {
     this.scene.add(this.lights);
+    if (renderer) this.scene.add(new SparkRenderer({ renderer, covSplats: true, accumExtSplats: true }));
+    else this.splatLook = false;
     this.ready = this.load();
   }
 
@@ -403,12 +416,48 @@ export class FirstPersonHands {
     mirror.scale.x = -1;
     mirror.add(this.left.root, this.left.sleeve);
     this.scene.add(this.right.root, this.right.sleeve, mirror);
+
+    if (this.renderer) {
+      // Bake the splats with the hands at rest, where the matcap light was painted for.
+      applyPose(this.right, REST);
+      applyPose(this.left, REST);
+      this.scene.updateMatrixWorld(true);
+      const skinLight = new Matcap(skinMatcap);
+      const sleeveLight = new Matcap(sleeveMatcap);
+      const along = new THREE.Vector3(0, 0, 1); // sleeve strokes run down the arm
+      for (const [rig, seed] of [[this.right, 11], [this.left, 23]] as const) {
+        const hand = rig.meshes.find((mesh): mesh is THREE.SkinnedMesh => mesh instanceof THREE.SkinnedMesh && mesh.material === skin);
+        if (hand) this.skins.push(await SkinnedSplats.create(hand, skinLight, seed));
+        const sleeveParts = rig.meshes.filter((mesh) => mesh.parent === rig.sleeve && mesh.material === sleeve);
+        this.splatMeshes.push(await rigidSplats(rig.sleeve, sleeveParts, sleeveLight, seed + 1, along));
+      }
+      this.splatMeshes.push(...this.skins.map((part) => part.splats));
+      for (const splats of this.splatMeshes) splats.recolor.copy(this.tint);
+    }
+    this.showLook();
+  }
+
+  /** Gaussian splats (true) or the inked mesh (false). */
+  get splats() {
+    return this.splatLook;
+  }
+
+  set splats(on: boolean) {
+    this.splatLook = on && !!this.renderer;
+    this.showLook();
+  }
+
+  private showLook() {
+    const splats = this.splatLook && this.splatMeshes.length > 0;
+    for (const rig of [this.right, this.left]) for (const mesh of rig?.meshes ?? []) mesh.visible = !splats;
+    for (const mesh of this.splatMeshes) mesh.visible = splats;
   }
 
   /** Tint the painted light to match the world: the matcaps are painted in the cabin's lamplight. */
   setMood(mood: Mood) {
     this.tint.set(mood === 'indoor' ? 0xffffff : 0xdfe5f5); // dusk: a little cooler and darker
     for (const material of this.materials) material.color.copy(this.tint);
+    for (const splats of this.splatMeshes) splats.recolor.copy(this.tint);
     this.lights.setMood(mood);
   }
 
@@ -531,7 +580,8 @@ export class FirstPersonHands {
 
     // Base poses: what each hand returns to between actions.
     const rightBase = this.held ? HOLD : this.pettingPose(dt);
-    const leftBase = REST;
+    // While petting, the free left hand drops out of the way.
+    const leftBase = blend(REST, LEFT_LOWERED, this.petting.weight);
 
     let rightPose: Pose = { ...rightBase };
     let leftPose: Pose = { ...leftBase };
@@ -567,6 +617,10 @@ export class FirstPersonHands {
       pose.x += this.sway.x * side * quiet; // the mirrored left hand flips x
       pose.y += this.sway.y * quiet + this.airborne * 0.025;
       applyPose(rig, pose);
+    }
+    if (this.splatLook && this.skins.length) {
+      this.scene.updateMatrixWorld(true);
+      for (const skin of this.skins) skin.update();
     }
   }
 
@@ -635,16 +689,18 @@ function buildRig(model: THREE.Object3D, skin: THREE.Material, sleeveMaterial: T
     return found;
   };
 
-  model.traverse((object) => {
-    if (object instanceof THREE.SkinnedMesh) {
-      object.material = skin;
-      object.frustumCulled = false; // bones move it beyond its bind-pose bounds
-      const outline = new THREE.SkinnedMesh(object.geometry, outlineMaterial(OUTLINE, INK));
-      outline.bind(object.skeleton, object.bindMatrix);
-      outline.frustumCulled = false;
-      object.parent!.add(outline);
-    }
-  });
+  const skinned: THREE.SkinnedMesh[] = [];
+  model.traverse((object) => object instanceof THREE.SkinnedMesh && skinned.push(object));
+  const meshes: THREE.Mesh[] = [];
+  for (const hand of skinned) {
+    hand.material = skin;
+    hand.frustumCulled = false; // bones move it beyond its bind-pose bounds
+    const outline = new THREE.SkinnedMesh(hand.geometry, outlineMaterial(OUTLINE, INK));
+    outline.bind(hand.skeleton, hand.bindMatrix);
+    outline.frustumCulled = false;
+    hand.parent!.add(outline);
+    meshes.push(hand, outline);
+  }
 
   // Orientation from the bind pose: the palm points wrist -> middle knuckle (the fingers are slightly bent
   // in the bind pose, so the fingertip would tilt it); the knuckles run index -> little.
@@ -672,7 +728,9 @@ function buildRig(model: THREE.Object3D, skin: THREE.Material, sleeveMaterial: T
   root.add(wristJoint);
 
   const fingers = FINGERS.map((finger) => new Chain(FINGER_JOINTS.map((joint) => bone(`${finger}-${joint}`))));
-  return { root, sleeve: buildSleeve(sleeveMaterial), wrist: wristJoint, socket, fingers, thumb: new Chain(THUMB_JOINTS.map(bone)) };
+  const sleeve = buildSleeve(sleeveMaterial);
+  sleeve.traverse((object) => object instanceof THREE.Mesh && meshes.push(object));
+  return { root, sleeve, meshes, wrist: wristJoint, socket, fingers, thumb: new Chain(THUMB_JOINTS.map(bone)) };
 }
 
 /** A raincoat sleeve from the wrist back past the edge of the view, with a few soft folds and a cuff band. */

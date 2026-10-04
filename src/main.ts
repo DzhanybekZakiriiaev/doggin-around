@@ -1,6 +1,7 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { SparkRenderer } from '@sparkjsdev/spark';
 import * as THREE from 'three';
+import { Biscuit } from './biscuit';
 import { Doorway } from './door';
 import { FirstPersonHands, HAND_ACTIONS, type HandAction } from './hands';
 import { Interactions } from './interaction';
@@ -20,6 +21,7 @@ const resSelect = $<HTMLSelectElement>('#res-select');
 const colliderToggle = $<HTMLInputElement>('#collider-toggle');
 const flyToggle = $<HTMLInputElement>('#fly-toggle');
 const handsToggle = $<HTMLInputElement>('#hands-toggle');
+const splatHandsToggle = $<HTMLInputElement>('#splat-hands-toggle');
 const dragToggle = $<HTMLInputElement>('#drag-toggle');
 const lookSpeedInput = $<HTMLInputElement>('#look-speed');
 const handActionSelect = $<HTMLSelectElement>('#hand-action');
@@ -32,7 +34,8 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x1b2028);
-const spark = new SparkRenderer({ renderer });
+// covSplats/accumExtSplats: what Biscuit's skinned splats need (full covariance, extended precision).
+const spark = new SparkRenderer({ renderer, covSplats: true, accumExtSplats: true });
 scene.add(spark);
 const worldLights = new MoodLights(); // for the toon meshes placed in the world; splats ignore it
 scene.add(worldLights);
@@ -43,15 +46,21 @@ const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerH
 await RAPIER.init();
 const physics = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
 const player = new FirstPersonPlayer(camera, physics, canvas);
-const hands = new FirstPersonHands();
+const hands = new FirstPersonHands(renderer);
 hands.setAspect(camera.aspect);
 const interactions = new Interactions($('#prompt'));
 const transition = new ComicTransition($('#transition'));
+const biscuit = new Biscuit(renderer, physics);
+scene.add(biscuit.group);
+biscuit.ready.catch((error) => {
+  console.error(error);
+  statusEl.textContent = `Biscuit didn't load: ${(error as Error).message}`;
+});
 
 // ---------- Settings (remembered per browser) ----------
 
 const settings = (() => {
-  const defaults = { lookSpeed: 1, dragLook: quality.softwareRenderer, hands: true };
+  const defaults = { lookSpeed: 1, dragLook: quality.softwareRenderer, hands: true, splatHands: true };
   try {
     return { ...defaults, ...JSON.parse(localStorage.getItem('panel-walk:settings') ?? '{}') };
   } catch {
@@ -68,8 +77,10 @@ const saveSettings = () => {
 lookSpeedInput.value = String(settings.lookSpeed);
 dragToggle.checked = settings.dragLook;
 handsToggle.checked = settings.hands;
+splatHandsToggle.checked = settings.splatHands;
 player.lookSpeed = settings.lookSpeed;
 hands.visible = settings.hands;
+hands.splats = settings.splatHands;
 
 // ---------- Worlds (kept loaded once visited, so going back through a door is instant) ----------
 
@@ -133,14 +144,17 @@ async function enterWorld(runId: string, arrivingThrough?: string) {
   world.colliderView.visible = colliderToggle.checked;
   physics.step(); // register the collider before the player moves against it
 
+  biscuit.letGo(); // a stick in his mouth stays in the world it came from
   for (const [prop, home] of propHome) prop.setActive(home === world);
 
   const doors = doorways.get(world) ?? [];
   const arrival = doors.find((door) => door.placement.id === arrivingThrough)?.arrival();
   player.placeAt(arrival?.feet ?? new THREE.Vector3(), arrival?.yaw ?? 0);
+  biscuit.placeBeside(player.feet, arrival?.yaw ?? 0); // he comes through the door with you
   const mood = runId.startsWith('cabin') ? 'indoor' : 'dusk';
   hands.setMood(mood);
   worldLights.setMood(mood);
+  biscuit.setMood(mood);
   refreshInteractions();
   quality.reset();
   statusEl.textContent = worldRuns.find((run) => run.id === runId)?.label ?? runId;
@@ -160,6 +174,13 @@ function refreshInteractions() {
       prompt: door.placement.prompt,
       act: () => goThrough(door),
     })),
+    {
+      target: biscuit.back,
+      range: 2.6,
+      prompt: 'Pet Biscuit',
+      enabled: () => !carried && !hands.busy && !biscuit.busy,
+      act: pet,
+    },
     ...[...propHome].filter(([, home]) => home === here).map(([prop]) => ({
       target: prop.position,
       range: 2.4,
@@ -198,6 +219,7 @@ async function throwCarried() {
       const velocity = camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(8).add(new THREE.Vector3(0, 2.5, 0));
       const spin = new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(14);
       putInWorld(prop, from, velocity, spin);
+      biscuit.fetch(prop);
     },
   });
 }
@@ -224,6 +246,44 @@ function putInWorld(prop: Prop, at: THREE.Vector3, velocity?: THREE.Vector3, spi
   prop.putDown(at, velocity, spin);
   refreshInteractions();
   showHint();
+}
+
+// ---------- Biscuit ----------
+
+const wait = (seconds: number) => new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+
+/** He trots up and stands side-on in front of you (head to your left), you crouch, and the hand strokes his neck. */
+async function pet() {
+  if (carried || hands.busy || !player.inputEnabled) return;
+  player.inputEnabled = false;
+  try {
+    const forward = new THREE.Vector3(-Math.sin(player.heading), 0, -Math.cos(player.heading));
+    biscuit.comeForPets(player.feet.addScaledVector(forward, 0.62), player.heading + Math.PI / 2);
+    player.crouching = true;
+    player.focus = biscuit.petPoint;
+    // His neck low in the view: the right arm reaches in from the bottom right, over his shoulders, with
+    // his face clear to the left.
+    player.focusTilt = 0.3;
+    player.focusTurn = 0.08;
+    for (let waited = 0; !biscuit.readyForPets && waited < 3; waited += 0.1) await wait(0.1);
+    await wait(0.35); // let the view settle on him
+    hands.startPetting(1.1, hands.aimAt(biscuit.petPoint, camera));
+    await wait(3.2);
+  } finally {
+    hands.stopPetting();
+    biscuit.petEnd();
+    player.crouching = false;
+    player.focus = undefined;
+    player.focusTilt = player.focusTurn = 0;
+    player.inputEnabled = true;
+  }
+}
+
+async function callBiscuit() {
+  if (hands.busy || !player.inputEnabled) return;
+  biscuit.come();
+  biscuit.barkTwice();
+  await hands.play('beckon');
 }
 
 function showHint() {
@@ -270,6 +330,7 @@ resSelect.addEventListener('change', async () => {
   for (const prop of propHome.keys()) prop.dispose(physics);
   propHome.clear();
   carried = undefined;
+  biscuit.letGo();
   hands.release();
   showHint();
   await enterWorld(worldSelect.value).catch(showError);
@@ -283,6 +344,10 @@ flyToggle.addEventListener('change', () => {
 });
 handsToggle.addEventListener('change', () => {
   settings.hands = hands.visible = handsToggle.checked;
+  saveSettings();
+});
+splatHandsToggle.addEventListener('change', () => {
+  settings.splatHands = hands.splats = splatHandsToggle.checked;
   saveSettings();
 });
 dragToggle.addEventListener('change', () => {
@@ -319,7 +384,7 @@ handActionSelect.addEventListener('change', () => {
 if (import.meta.env.DEV) {
   Object.assign(window, {
     game: {
-      renderer, scene, spark, quality, camera, player, hands, physics, interactions, doorways, propHome,
+      renderer, scene, spark, quality, camera, player, hands, biscuit, physics, interactions, doorways, propHome,
       getWorld: () => world, getCarried: () => carried, throwCarried, putDownCarried,
     },
   });
@@ -362,6 +427,8 @@ window.addEventListener('keydown', (event) => {
     void throwCarried();
   } else if (event.code === 'KeyG') {
     void putDownCarried();
+  } else if (event.code === 'KeyV') {
+    void callBiscuit();
   }
 });
 // With the pointer locked, a left click throws too (in drag-to-look mode the button is for looking).
@@ -390,6 +457,7 @@ renderer.setAnimationLoop((time) => {
     physics.timestep = dt;
     physics.step();
     for (const [prop, home] of propHome) if (home === world) prop.sync();
+    biscuit.update(dt, player.feet);
     interactions.update(camera);
   }
   hands.visible = settings.hands && !player.fly;

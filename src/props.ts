@@ -111,6 +111,27 @@ export class Prop {
     return inHand;
   }
 
+  /** Settled after a throw or drop (nearly still). */
+  get resting(): boolean {
+    if (this.carried) return false;
+    const { x, y, z } = this.body.linvel();
+    return x * x + y * y + z * z < 0.04;
+  }
+
+  /** Taken by something other than the player's hand (Biscuit's mouth): out of the physics, still visible. */
+  lift() {
+    this.carried = true;
+    this.body.setEnabled(false);
+    this.object.visible = true;
+  }
+
+  /** While lifted, whoever carries it places it every frame. */
+  carryTo(position: THREE.Vector3, quaternion: THREE.Quaternion) {
+    this.object.position.copy(position);
+    this.object.quaternion.copy(quaternion);
+    this.position.copy(position);
+  }
+
   /** Back into the world at `at`, moving at `velocity` (a throw) or at rest (put down). */
   putDown(at: THREE.Vector3, velocity = new THREE.Vector3(), spin = new THREE.Vector3()) {
     this.carried = false;

@@ -35,16 +35,20 @@ export class Interactions {
     if (!this.enabled || this.busy) return this.show(undefined);
     const forward = camera.getWorldDirection(new THREE.Vector3());
     const toTarget = new THREE.Vector3();
+    // The one nearest the crosshair wins (a stick lying at Biscuit's nose vs. petting him), with a
+    // little weight on distance so a target right in front beats one far behind it.
     let best: Interactable | undefined;
-    let bestDistance = Infinity;
+    let bestScore = Infinity;
     for (const item of this.items) {
       if (item.enabled && !item.enabled()) continue;
       toTarget.subVectors(item.target, camera.position);
       const distance = toTarget.length();
-      if (distance > item.range || distance >= bestDistance) continue;
-      if (forward.angleTo(toTarget) > MAX_LOOK_ANGLE) continue;
+      const angle = forward.angleTo(toTarget);
+      if (distance > item.range || angle > MAX_LOOK_ANGLE) continue;
+      const score = angle + distance * 0.1;
+      if (score >= bestScore) continue;
       best = item;
-      bestDistance = distance;
+      bestScore = score;
     }
     this.show(best);
   }

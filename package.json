@@ -13,7 +13,8 @@
     "worlds": "node scripts/worldlabs.mjs",
     "pano": "node scripts/pano-fix.mjs",
     "hands-style": "node scripts/hands-style.mjs",
-    "comic": "node scripts/comic-panels.mjs"
+    "comic": "node scripts/comic-panels.mjs",
+    "dog-clips": "node --experimental-transform-types --no-warnings=ExperimentalWarning scripts/dog-clips.mjs"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.21.0",
