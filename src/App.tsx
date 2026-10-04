@@ -14,6 +14,7 @@ import {
 import { audioContext, setMasterVolume } from "./game/audio";
 import { Game } from "./game/game";
 import { Pipeline } from "./Pipeline";
+import { WORLD_PIPELINE_IMAGES, WORLD_PIPELINE_MS, WorldPipeline } from "./WorldPipeline";
 import { COMPANIONS, type CompanionId } from './game/companions'
 
 // The menu around the walkable comic. Page 1: upload your comic. Page 2: Biscuit (the real splat dog,
@@ -797,7 +798,7 @@ function ComicHub({
 
   // The way-in frames, fetched now so the cross-fades never wait on a download.
   useEffect(() => {
-    for (const src of PORTAL_FRAMES) new Image().src = src;
+    for (const src of [...PORTAL_FRAMES, ...WORLD_PIPELINE_IMAGES]) new Image().src = src;
   }, []);
 
   // Biscuit leaps off his stand into panel 1, landing where he's painted, then the panel takes over.
@@ -989,9 +990,10 @@ export default function App() {
 
   // Into panel 1: Biscuit leaps in, the panel grows to fill the screen, the game starts behind it (already
   // loaded, at the same view the panel is drawn from), and the panel dissolves into it.
-  // Out of panel 1 and into the game: the panel fills the screen, then dissolves through two Gemini-painted
-  // frames of the game's opening view (comic, then half-way) into a capture of that view, which holds until
-  // the live game behind it has really drawn the yard; then it fades into the identical live picture.
+  // Out of panel 1 and into the game: the panel fills the screen, then the world pipeline plays in the middle
+  // (6 s: side views, panorama, the world) while, behind it, the panel dissolves through the painted
+  // in-betweens into a capture of the game's opening view; once the pipeline's done and the live game has
+  // really drawn the yard, it all fades into the identical live picture.
   const enterPanel = async (panel: HTMLElement) => {
     if (!game) return;
     setPortal({ rect: panel.getBoundingClientRect(), phase: "start", step: 0 });
@@ -1007,15 +1009,16 @@ export default function App() {
       game.player.inputEnabled = false; // hold the view on the frame being faded into
       await game.whenDrawn();
     })();
-    // Panel 1 through the five painted in-betweens, cross-fading in quick overlapping steps; the last one
-    // (barely inked) waits for the game to have drawn, then the capture of its opening view comes up.
+    const pipeline = sleep(WORLD_PIPELINE_MS);
+    // Behind it, panel 1 through the five painted in-betweens, spread over the pipeline; the last one (barely
+    // inked) waits for the game to have drawn, then the capture of its opening view comes up.
     const last = PORTAL_FRAMES.length - 1;
     for (let step = 1; step <= last; step++) {
       if (step === last) await live;
       setPortal((current) => current && { ...current, phase: "morph", step });
-      await sleep(step === 1 ? 600 : 300);
+      if (step < last) await sleep(WORLD_PIPELINE_MS / last);
     }
-    await live;
+    await Promise.all([live, pipeline]);
     setScreen("game");
     setPortal((current) => current && { ...current, phase: "fade" });
     await sleep(650);
@@ -1087,6 +1090,12 @@ export default function App() {
               />
             ))}
           <i className="portal-rain" />
+          {(portal.phase === "morph" || portal.phase === "fade") && (
+            <>
+              <i className="wp-dim" />
+              <WorldPipeline />
+            </>
+          )}
         </div>
       )}
       {complete && <QuestComplete name={displayName} onBack={backToComic} />}
