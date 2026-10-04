@@ -212,6 +212,7 @@
 }
 
 .emote-wheel.is-open {
+  pointer-events: auto;
   display: block;
   animation: emote-wheel-in 0.16s cubic-bezier(0.2, 1.4, 0.4, 1) both;
 }
@@ -225,6 +226,7 @@
 
 /* The ring: inked, a little see-through, with a comic drop shadow. */
 .emote-wheel::before {
+  pointer-events: none;
   content: '';
   position: absolute;
   inset: 0;
@@ -238,6 +240,7 @@
 
 /* The wedge behind whatever's aimed at. */
 .emote-wheel::after {
+  pointer-events: none;
   content: '';
   position: absolute;
   inset: 4px;
@@ -287,6 +290,7 @@
 }
 
 .emote-wheel__centre {
+  z-index: 2;
   position: absolute;
   left: 50%;
   top: 50%;
@@ -315,3 +319,25 @@
   font: 24px/1 var(--game-comic-font);
   letter-spacing: 0.04em;
 }
+
+.emote-wheel__pages {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  font: 11px/1 system-ui, sans-serif;
+}
+
+.emote-wheel__pages[hidden] { display: none }
+
+.emote-wheel__pages button {
+  border: 0;
+  background: transparent;
+  color: var(--game-ink);
+  cursor: pointer;
+  padding: 2px 7px;
+  font: bold 22px/1 system-ui, sans-serif;
+}
+
+.emote-wheel__pages button:hover,
+.emote-wheel__pages button:focus-visible { background: var(--game-sfx-yellow) }
