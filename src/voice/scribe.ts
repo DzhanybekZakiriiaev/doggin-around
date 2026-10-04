@@ -131,8 +131,8 @@ export class ScribeSession {
   private holding = false
   private committing = false
   private sentAudio = false
-  private retries = 0
-  private retryTimer?: ReturnType<typeof setTimeout>
+  private samplesSent = 0
+  private graphOpening?: Promise<AudioWorkletNode | undefined>
   private disposed = false
 
   constructor(private readonly options: ScribeOptions = {}) {
@@ -144,6 +144,7 @@ export class ScribeSession {
   /** Opens the socket. Safe to call repeatedly; later calls share the work. */
   connect(): Promise<void> {
     if (this.disposed) return Promise.resolve()
+    if (this.opening) return this.opening
     if (this.socket?.readyState === WebSocket.OPEN) return Promise.resolve()
     this.opening ??= this.open()
       .catch((error: unknown) => {
@@ -171,7 +172,9 @@ export class ScribeSession {
     this.holding = true
     clearTimeout(this.micTimer)
     try {
-      await Promise.all([this.connect(), this.listen()])
+      await this.connect()
+      if (!this.holding || this.disposed) return
+      await this.listen()
     } catch (error) {
       this.holding = false
       this.closeMic()
@@ -182,6 +185,7 @@ export class ScribeSession {
     await this.context?.resume()
     this.committing = true
     this.sentAudio = false
+    this.samplesSent = 0
     this.worklet?.port.postMessage("start")
     this.announce("listening")
   }
@@ -205,7 +209,6 @@ export class ScribeSession {
   dispose(): void {
     this.disposed = true
     this.holding = false
-    clearTimeout(this.retryTimer)
     clearTimeout(this.micTimer)
     this.worklet?.port.postMessage("stop")
     if (this.worklet) this.worklet.port.onmessage = null
@@ -220,20 +223,22 @@ export class ScribeSession {
 
   private async open(): Promise<void> {
     this.announce("connecting")
-    const response = await fetch(this.tokenUrl, { method: "POST" })
+    const response = await fetch(this.tokenUrl, { method: "POST", signal: AbortSignal.timeout(12000) })
     const payload = (await response.json().catch(() => ({}))) as {
       token?: string
       error?: string
     }
     if (!response.ok || !payload.token)
       throw new Error(
-        payload.error ?? `Token request failed (${response.status})`,
+        payload.error ?? (response.status === 404 || !response.headers.get("content-type")?.includes("application/json")
+          ? "Voice endpoint is missing. Deploy the speech server route and try again."
+          : `Token request failed (${response.status})`),
       )
+    if (this.disposed) return
     const query = new URLSearchParams({
       model_id: "scribe_v2_realtime",
       audio_format: `pcm_${SAMPLE_RATE}`,
       commit_strategy: "manual",
-      keepalive_interval_ms: "5000",
       token: payload.token,
     })
     if (this.language) query.set("language_code", this.language)
@@ -242,23 +247,44 @@ export class ScribeSession {
     socket.addEventListener("message", this.onMessage)
     socket.addEventListener("close", this.onClose)
     await new Promise<void>((resolve, reject) => {
-      socket.addEventListener("open", () => resolve(), { once: true })
-      socket.addEventListener(
-        "error",
-        () => reject(new Error("Could not reach ElevenLabs")),
-        { once: true },
-      )
+      const finish = (error?: Error) => {
+        clearTimeout(timeout)
+        socket.removeEventListener("message", started)
+        socket.removeEventListener("error", failed)
+        socket.removeEventListener("close", closed)
+        if (error) {
+          socket.close()
+          reject(error)
+        } else resolve()
+      }
+      const started = (event: MessageEvent) => {
+        try {
+          const payload = JSON.parse(event.data)
+          if (payload.message_type === "session_started") finish()
+          else if (payload.error) finish(new Error(payload.error))
+        } catch { /* Ignore non-JSON messages. */ }
+      }
+      const failed = () => finish(new Error("Could not reach ElevenLabs"))
+      const closed = () => finish(new Error("ElevenLabs closed the connection before voice was ready. Try again."))
+      const timeout = setTimeout(() => finish(new Error("ElevenLabs took too long to connect. Try again.")), 10000)
+      socket.addEventListener("message", started)
+      socket.addEventListener("error", failed)
+      socket.addEventListener("close", closed)
     })
     if (this.disposed) {
       socket.close()
       return
     }
-    this.retries = 0
     this.announce("ready")
   }
 
   /** The context and worklet, built once and kept; no capture device is involved. */
-  private async graph(): Promise<AudioWorkletNode | undefined> {
+  private graph(): Promise<AudioWorkletNode | undefined> {
+    this.graphOpening ??= this.createGraph().finally(() => { this.graphOpening = undefined })
+    return this.graphOpening
+  }
+
+  private async createGraph(): Promise<AudioWorkletNode | undefined> {
     if (this.disposed) return undefined
     if (this.worklet) return this.worklet
     const context = (this.context ??=
@@ -371,9 +397,17 @@ export class ScribeSession {
     }
     if (data.audio.length === 0) return
     const rate = this.context?.sampleRate ?? SAMPLE_RATE
+    let samples = resample(data.audio, rate)
+    // Short commands still need the service's initial two seconds of audio.
+    if (data.final) {
+      const padded = new Float32Array(Math.max(samples.length + SAMPLE_RATE / 5, SAMPLE_RATE * 2 - this.samplesSent))
+      padded.set(samples)
+      samples = padded
+    }
+    this.samplesSent += samples.length
     const frame: Frame = {
       message_type: "input_audio_chunk",
-      audio_base_64: encodePcm16(resample(data.audio, rate)),
+      audio_base_64: encodePcm16(samples),
       sample_rate: SAMPLE_RATE,
     }
     if (data.final) frame.commit = true
@@ -395,27 +429,30 @@ export class ScribeSession {
       return
     }
     const type = payload.message_type
-    if (type === "partial_transcript")
-      this.options.onPartial?.(payload.text ?? "")
+    if (type === "partial_transcript" && payload.text?.trim())
+      this.options.onPartial?.(payload.text)
     else if (type?.startsWith("committed_transcript"))
       this.options.onCommitted?.(payload.text ?? "")
     else if (type === "warning" || type?.includes("error") || payload.error) {
       if (type && SOFT_ERRORS.has(type)) this.options.onMiss?.()
-      else this.fail(payload.error ?? type ?? "Transcription failed")
+      else {
+        this.fail(payload.error ?? type ?? "Transcription failed")
+        this.socket?.close()
+      }
     }
   }
 
   private readonly onClose = (): void => {
     if (this.disposed) return
+    const interrupted = this.holding
     this.holding = false
+    this.committing = false
+    this.worklet?.port.postMessage("stop")
     this.socket = undefined
-    this.announce("offline")
-    // Tokens are single use and sessions have a time limit, so a reopen mints
-    // a fresh one. Backing off keeps a dead backend from spinning.
-    const delay = Math.min(8000, 400 * 2 ** this.retries++)
-    this.retryTimer = setTimeout(() => {
-      void this.connect().catch(() => undefined)
-    }, delay)
+    if (this.phase === "error") return
+    if (interrupted) this.fail("Connection lost. Hold F and say the command again.")
+    else this.announce("offline")
+    // An idle socket can expire. The next hold reconnects without a token retry loop.
   }
 
   private fail(detail: string): void {

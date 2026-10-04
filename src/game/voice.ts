@@ -28,7 +28,7 @@ export interface VoiceHandlers {
 
 /** The chip under the bubble, by connection state. */
 const PHASE_LABELS: Record<ScribePhase, string> = {
-  offline: 'Reconnecting…',
+  offline: 'Hold to talk',
   connecting: 'Connecting…',
   ready: 'Hold to talk',
   listening: 'Listening…',

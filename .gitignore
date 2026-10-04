@@ -24,3 +24,7 @@ worlds/out/**/pano.png
 !.vscode/extensions.json
 .DS_Store
 Thumbs.db
+
+# Browser test output
+test-results/
+playwright-report/
