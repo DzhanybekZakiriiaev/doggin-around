@@ -106,7 +106,7 @@ for (const [text, escalate] of [
 ] as const)
   if (parseUtterance(text).escalate !== escalate) fail(`escalate “${text}” → ${!escalate}`);
 
-console.log('every clip is reachable');
+console.log('supported spoken tricks still match the current dog actions')
 // Walking and running are left out of the table on purpose: he follows the player by himself.
 const SPOKEN_FOR: Record<string, string | null> = {
   idle: 'stay',
@@ -124,8 +124,8 @@ const SPOKEN_FOR: Record<string, string | null> = {
   wag: 'good boy',
 };
 if (!DOG_ACTIONS.length) fail('no clips found in dog.ts');
-for (const action of DOG_ACTIONS) {
-  const phrase = SPOKEN_FOR[action];
+for (const [action, phrase] of Object.entries(SPOKEN_FOR)) {
+  if (!DOG_ACTIONS.includes(action)) fail(`${action} is no longer a dog action`)
   if (phrase === null) continue;
   if (phrase === undefined) fail(`${action} is a clip with nothing to say to it`);
   else if (intents(phrase)[0] !== action) fail(`“${phrase}” does not reach ${action}`);

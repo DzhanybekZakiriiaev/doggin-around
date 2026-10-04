@@ -5,13 +5,13 @@ import { DogGait, type RigSpec } from './dog-gait';
 import { Dog, DOG_ACTIONS, type DogAction, type DogView } from './dog/dog';
 import type { Mood } from './lighting';
 import type { Prop } from './props';
+import { COMPANIONS, companionSkills, type CompanionId } from './companions'
 
 // Biscuit: the game-side behaviour around Larry's animated splat dog (src/dog, from larry/dogmodels).
 // The Dog plays its clips in place; this moves him through the world (following the player, fetching
 // thrown props, coming over to be petted, barking) and DogGait walks his legs. Asset: the Huawei
 // challenge dog (50,000 skinned Gaussians).
 
-const MODEL = '/models/dog-animated.glb'; // the Dog only uses the captured splat appearance at this exact path
 const RIG = '/models/huawei-dog-rig.json';
 const LENGTH = 0.85; // metres, nose to tail
 const FOLLOW_DISTANCE = 1.5; // where he settles, from the player
@@ -36,7 +36,7 @@ const MOOD_TINT: Record<Mood | 'studio', THREE.Color> = {
 };
 const DIG_SECONDS = 3.2;
 const BLEND = 0.3; // seconds between clips, as the Dog does it
-const TRICK_BLEND = 0.12; // into a trick from the wheel: snappier
+const TRICK_BLEND = 0.28
 
 type Mode = 'follow' | 'chase' | 'pickup' | 'return' | 'petted' | 'dig' | 'stage' | 'perform';
 
@@ -53,6 +53,9 @@ export class Biscuit {
   private gait?: DogGait;
   private neck?: THREE.Object3D;
   private loaded = false;
+  private changing = false
+  private companion: CompanionId = 'huawei'
+  private stageTrick = false
   private placed = false;
   private moving = false;
   private fetching?: Prop;
@@ -70,6 +73,8 @@ export class Biscuit {
   private tint = MOOD_TINT.dusk;
   private readonly lastPosition = new THREE.Vector3();
   private lastHeading = 0;
+  private travelSpeed = 0
+  private readonly direction = new THREE.Vector3()
 
   constructor(
     renderer: THREE.WebGLRenderer,
@@ -81,20 +86,58 @@ export class Biscuit {
     this.ready = this.load();
   }
 
-  private async load() {
-    const [rig] = await Promise.all([
-      fetch(RIG).then((response) => response.json() as Promise<RigSpec & { neck: string }>),
-      this.dog.loadDog(MODEL),
-    ]);
+  private async load(id: CompanionId = 'huawei') {
+    const model = COMPANIONS[id]
+    const rig = id === 'huawei' ? await fetch(RIG).then((response) => {
+        if (!response.ok) throw new Error('The dog rig could not be loaded')
+        return response.json() as Promise<RigSpec>
+      }) : undefined
+    await this.dog.loadDog(model.model, model.appearance)
     // The Dog normalises the model to 2.6 units on its longest side (nose to tail), feet on y = 0, facing -Z.
     this.dog.group.scale.setScalar(LENGTH / 2.6);
     this.dog.group.updateMatrixWorld(true);
-    this.neck = this.dog.group.getObjectByName(rig.neck);
-    this.gait = new DogGait(rig, this.dog.group, this.group, (x, z, near) => this.groundAt(x, z, near));
+    this.neck = this.dog.group.getObjectByName(model.neck)
+    this.gait = rig ? new DogGait(rig, this.dog.group, this.group, (x, z, near) => this.groundAt(x, z, near)) : undefined
     this.dog.onPose = (step) => this.gait?.apply(step);
     this.loaded = true;
+    this.companion = id
     this.group.visible = this.placed;
     this.applyTint();
+  }
+
+  get companionId() {
+    return this.companion
+  }
+
+  get isReady() {
+    return this.loaded && !this.changing
+  }
+
+  get action() {
+    return this.dog.action
+  }
+
+  get skills() {
+    return companionSkills(this.companion, this.dog.availableActions)
+  }
+
+  async selectCompanion(id: CompanionId) {
+    if (this.changing) return false
+    await this.ready
+    if (id === this.companion) return true
+    this.changing = true
+    this.loaded = false
+    this.barks = []
+    this.bark.pause()
+    this.gait?.letGo()
+    try {
+      await this.load(id)
+      this.stage(this.group.rotation.y)
+      return true
+    } finally {
+      this.loaded = true
+      this.changing = false
+    }
   }
 
   get busy() {
@@ -131,6 +174,8 @@ export class Biscuit {
     this.mode = 'follow';
     this.idleTime = 0;
     this.moving = false;
+    this.travelSpeed = 0
+    this.walkingGait = undefined
     this.play('wag');
     this.snapToGround(true);
     this.lastPosition.copy(this.group.position);
@@ -147,6 +192,9 @@ export class Biscuit {
     this.dropFetch();
     this.mode = 'stage';
     this.presenting = undefined;
+    this.stageTrick = false
+    this.travelSpeed = 0
+    this.walkingGait = undefined
     this.studio.visible = false;
     this.dog.paused = false;
     this.dog.setView('splats');
@@ -314,17 +362,24 @@ export class Biscuit {
    * being petted).
    */
   perform(action: DogAction): boolean {
-    if (!this.loaded || this.mode === 'petted' || this.mode === 'dig' || this.mode === 'stage') return false;
+    if (!this.loaded || this.mode === 'petted' || this.mode === 'dig' || !this.skills.some(skill => skill.id === action)) return false
     this.dropFetch(true);
     const playback = DOG_ACTIONS.find((candidate) => candidate.name === action)?.playback;
-    this.mode = 'perform';
+    this.stageTrick = this.mode === 'stage'
+    if (!this.stageTrick) this.mode = 'perform'
     this.timer = playback === 'once' ? Math.max(0.8, this.dog.clipDuration(action)) + 0.25 : playback === 'hold' ? 3 : 2.6;
+    if (this.stageTrick && playback !== 'once') this.timer = Infinity
     this.walkingGait = undefined;
     this.idleTime = 0;
-    // Straight into it: a short cross-fade (play), and legs that leave the ground go to the clip at once.
-    if (!PLANTED.includes(action)) this.gait?.letGo();
-    if (action === 'bark') this.barkTwice();
-    else this.play(action);
+    this.travelSpeed = 0
+    if (this.gait) this.gait.active = false
+    this.barks = []
+    this.bark.pause()
+    this.dog.setActionRate(1)
+    this.dog.blendSeconds = TRICK_BLEND
+    this.dog.playAction(action)
+    if (action === 'bark') this.barks = [0.05, 0.85]
+    if (action === 'speak') this.barks = [0.05]
     return true;
   }
 
@@ -335,6 +390,18 @@ export class Biscuit {
 
     switch (this.mode) {
       case 'stage':
+        if (this.stageTrick) {
+          this.timer -= dt
+          if (this.gait) this.gait.active = false
+          this.dog.update(dt)
+          this.back.copy(this.group.position).y += 0.35
+          if (this.timer <= 0) {
+            this.stageTrick = false
+            this.idleTime = 0
+            this.play('idle')
+          }
+          return
+        }
         if (this.presenting) {
           // The pipeline's turntable: his clip in place, the legs as the clip has them (no ground to plant on).
           this.group.rotation.y += this.presenting.turnRate * dt;
@@ -454,12 +521,12 @@ export class Biscuit {
       const forward = new THREE.Vector3(-Math.sin(heading), 0, -Math.cos(heading));
       this.gait.speed = moved.setY(0).dot(forward) / dt;
       this.gait.turnRate = Math.atan2(Math.sin(heading - this.lastHeading), Math.cos(heading - this.lastHeading)) / dt;
-      this.gait.active = PLANTED.includes(this.dog.action);
+      this.gait.active = this.mode !== 'perform' && PLANTED.includes(this.dog.action);
     }
     this.lastPosition.copy(this.group.position);
     this.lastHeading = heading;
 
-    this.snapToGround(false);
+    this.snapToGround(false, dt);
     this.dog.update(dt);
     if (this.carrying) this.holdInMouth(this.carrying);
     // The scruff, just behind the head: a little up from the neck joint and back along his body.
@@ -488,6 +555,11 @@ export class Biscuit {
       return;
     }
     // Settled near the player: watch them, wag now and then, sit if nothing happens for a while.
+    if (wasMoving) {
+      this.walkingGait = undefined
+      this.travelSpeed = 0
+      this.play('idle')
+    }
     this.idleTime += dt;
     this.faceToward(player, dt);
     this.wagTime = this.dog.action === 'wag' ? this.wagTime + dt : 0;
@@ -512,20 +584,41 @@ export class Biscuit {
    * so the clip underneath is the happy wagging one (the authored walk clip bobs and skates).
    */
   private moveToward(target: THREE.Vector3, gait: 'walk' | 'run', dt: number, stopAt: number): boolean {
-    const direction = new THREE.Vector3(target.x - this.group.position.x, 0, target.z - this.group.position.z);
+    const direction = this.direction.set(target.x - this.group.position.x, 0, target.z - this.group.position.z)
     const distance = direction.length();
     if (distance <= stopAt + ARRIVED) {
       this.walkingGait = undefined;
+      this.travelSpeed = 0
+      if (this.dog.action === 'walk' || this.dog.action === 'run') this.play('idle')
       return true;
     }
     const heading = Math.atan2(-direction.x, -direction.z);
     this.turnTo(heading, dt);
     const facing = Math.max(0, Math.cos(this.headingError(heading)));
-    const travel = Math.min(distance - stopAt, SPEED[gait] * dt * facing);
+    const remaining = Math.max(0, distance - stopAt)
+    const cadence = this.dog.gaitCadence?.[gait]
+    const strideSpeed = cadence ? cadence.travelSpeed * this.dog.group.scale.z : SPEED[gait]
+    // Keep recorded strides at a natural cadence and match travel to their foot speed.
+    const cadenceLimit = gait === 'walk' ? 1.8 : 3.2
+    const cruiseSpeed = cadence && !this.gait
+      ? Math.min(SPEED[gait], strideSpeed * cadenceLimit / cadence.cyclesPerSecond)
+      : SPEED[gait]
+    const targetSpeed = Math.min(cruiseSpeed, remaining * 3) * facing
+    this.travelSpeed = THREE.MathUtils.damp(this.travelSpeed, targetSpeed, 7, dt)
+    const travel = Math.min(remaining, this.travelSpeed * dt)
     this.group.position.addScaledVector(direction, travel / distance);
-    this.walkingGait = gait;
+    // Finish slowing down before asking a short walking stride to carry running speed.
+    const animationGait = cadence && !this.gait && gait === 'walk' && this.walkingGait === 'run'
+      && this.travelSpeed > cruiseSpeed * 1.01 ? 'run' : gait
+    this.walkingGait = animationGait
     this.moving = true;
-    if (this.dog.action !== 'wag' && this.dog.action !== 'idle') this.play('wag');
+    if (this.gait) {
+      if (this.dog.action !== 'wag' && this.dog.action !== 'idle') this.play('wag')
+    } else {
+      const animationStride = this.dog.gaitCadence?.[animationGait]
+      const footSpeed = animationStride ? animationStride.travelSpeed * this.dog.group.scale.z : strideSpeed
+      this.play(animationGait, Math.max(0.15, travel / Math.max(dt, 0.001) / footSpeed))
+    }
     return false;
   }
 
@@ -537,7 +630,7 @@ export class Biscuit {
 
   private turnTo(heading: number, dt: number) {
     const error = this.headingError(heading);
-    const turned = this.group.rotation.y + Math.sign(error) * Math.min(Math.abs(error), TURN_RATE * dt);
+    const turned = this.group.rotation.y + THREE.MathUtils.clamp(error * (1 - Math.exp(-8 * dt)), -TURN_RATE * dt, TURN_RATE * dt)
     this.group.rotation.y = Math.atan2(Math.sin(turned), Math.cos(turned));
   }
 
@@ -554,10 +647,10 @@ export class Biscuit {
     return Math.hypot(target.x - this.group.position.x, target.z - this.group.position.z);
   }
 
-  private play(action: DogAction) {
+  private play(action: DogAction, rate = 1) {
     this.dog.blendSeconds = this.mode === 'perform' ? TRICK_BLEND : BLEND; // tricks from the wheel start snappier
-    if (this.dog.actionRate !== 1) this.dog.setActionRate(1);
     if (this.dog.action !== action) this.dog.playAction(action);
+    if (this.dog.actionRate !== rate) this.dog.setActionRate(rate)
   }
 
   private dropFetch(drop = false) {
@@ -612,10 +705,10 @@ export class Biscuit {
   }
 
   /** Keeps his body on the world: a ray down onto the collider under his middle. */
-  private snapToGround(immediate: boolean) {
+  private snapToGround(immediate: boolean, dt = 0) {
     const p = this.group.position;
     const ground = this.groundAt(p.x, p.z, p.y + 0.6);
     if (ground === undefined) return;
-    p.y = immediate ? ground : THREE.MathUtils.lerp(p.y, ground, 0.35);
+    p.y = immediate ? ground : THREE.MathUtils.damp(p.y, ground, 18, dt)
   }
 }

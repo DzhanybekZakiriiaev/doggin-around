@@ -81,6 +81,7 @@ const DROP_VERTEX = /* glsl */ `
       * smoothstep(0.3, 1.0, dist)
       * (1.0 - smoothstep(0.3 * uBox.x, 0.5 * uBox.x, length(offset.xz)))
       * (1.0 - smoothstep(uBoxLow.y + uBox.y - 2.0, uBoxLow.y + uBox.y, offset.y))
+      * smoothstep(uBoxLow.y, uBoxLow.y + 1.0, offset.y)
       * clamp(pow(0.004 / width, 0.6), 0.25, 1.0);
 
     // Under a roof or below the ground: gone.
@@ -321,8 +322,9 @@ export class Rain {
     u.uOpacity.value = this.intensity;
     camera.getWorldPosition(u.uCenter.value);
     // World size of a pixel one metre away, for the streaks' minimum width.
-    const height = this.renderer.getDrawingBufferSize(this.bufferSize).y;
+    const height = this.renderer.getSize(this.bufferSize).y
     u.uPixel.value = (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) / Math.max(1, height);
+    u.uStreak.value = THREE.MathUtils.damp(u.uStreak.value, Math.max(STREAK_SECONDS, Math.min(0.06, dt * 1.2)), 8, dt)
   }
 
   /** Out in it, or heard through the cabin's walls (the same level, muffled); silent in the menu. */

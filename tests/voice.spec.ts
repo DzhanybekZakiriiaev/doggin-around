@@ -122,16 +122,14 @@ test('holding F in the comic dispatches a transcript to the real dog animation',
   await page.getByRole('button', { name: /Step into panel 1/ }).click()
   await page.locator('.game-layer--play').waitFor({ timeout: 60000 })
   await page.locator('.panel-portal').waitFor({ state: 'detached', timeout: 60000 })
-  await page.evaluate(async () => {
-    const path = '/src/game/biscuit.ts'
-    const { Biscuit } = await import(path)
-    const perform = Biscuit.prototype.perform
-    const calls: unknown[] = []
+  await page.evaluate(() => {
     const state = window as any
-    state.spokenActions = calls
-    Biscuit.prototype.perform = function(action: string) {
-      const accepted = perform.call(this, action)
-      calls.push({ action, accepted, playing: this.dog.action })
+    const dog = state.game.biscuit
+    const perform = dog.perform.bind(dog)
+    state.spokenActions = []
+    dog.perform = (action: string) => {
+      const accepted = perform(action)
+      state.spokenActions.push({ action, accepted, playing: dog.dog.action })
       return accepted
     }
   })

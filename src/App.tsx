@@ -14,6 +14,7 @@ import {
 import { audioContext, setMasterVolume } from "./game/audio";
 import { Game } from "./game/game";
 import { Pipeline } from "./Pipeline";
+import { COMPANIONS, type CompanionId } from './game/companions'
 
 // The menu around the walkable comic. Page 1: upload your comic. Page 2: Biscuit (the real splat dog,
 // rendered by the game) and the Storm Night comic, bad ending first. Panel 1 is entered: Biscuit leaps in,
@@ -604,6 +605,7 @@ function LiveDog({ game, name }: { game: Game | null; name: string }) {
   };
 
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (game?.wheel.isOpen) return
     if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
       event.preventDefault();
       game?.spinDog(event.key === "ArrowLeft" ? -0.35 : 0.35);
@@ -649,7 +651,7 @@ function LiveDog({ game, name }: { game: Game | null; name: string }) {
         </div>
       </div>
       <p className="dog-viewer-hint">
-        <Icon name="rotate" size={14} /> DRAG TO TURN · TAP TO PET
+        <Icon name="rotate" size={14} /> DRAG TO TURN · TAP TO PET · X FOR SKILLS
       </p>
     </div>
   );
@@ -764,6 +766,34 @@ function ComicHub({
 }) {
   const spatial = useSpatialPointer();
   const [entering, setEntering] = useState(false);
+  const [companion, setCompanion] = useState<CompanionId>(game?.biscuit.companionId ?? 'huawei')
+  const [switching, setSwitching] = useState<CompanionId | null>(null)
+  const [switchError, setSwitchError] = useState('')
+  const [companionReady, setCompanionReady] = useState(game?.biscuit.isReady ?? false)
+
+  useEffect(() => {
+    let active = true
+    game?.biscuit.ready.then(() => {
+      if (active) setCompanionReady(true)
+    }).catch(() => {
+      if (active) setSwitchError('Your companion could not load. Refresh to try again.')
+    })
+    return () => { active = false }
+  }, [game])
+
+  const selectCompanion = async (id: CompanionId) => {
+    if (!game || !companionReady || switching || entering || id === companion) return
+    setSwitching(id)
+    setSwitchError('')
+    try {
+      if (await game.selectCompanion(id)) setCompanion(id)
+      else setSwitchError('Wait for your companion to finish, then try again.')
+    } catch {
+      setSwitchError('Could not load that dog. Your current companion is still here. Try again.')
+    } finally {
+      setSwitching(null)
+    }
+  }
 
   // The way-in frames, fetched now so the cross-fades never wait on a download.
   useEffect(() => {
@@ -772,7 +802,7 @@ function ComicHub({
 
   // Biscuit leaps off his stand into panel 1, landing where he's painted, then the panel takes over.
   const enter = async (panel: HTMLElement) => {
-    if (entering || !game) return;
+    if (entering || switching || !game || !companionReady) return
     setEntering(true);
     onStepIn();
     game.capturePointer(); // this click is the user gesture mouse look needs; the game opens already looking
@@ -792,6 +822,29 @@ function ComicHub({
       <TopBar loading={loading} screen={2} />
       <div className="hub-header">
         <ComicHeading eyebrow="ISSUE NO. 01" title="STORM NIGHT" />
+      </div>
+      <nav className="companion-rail" aria-label="Choose your companion" aria-busy={switching !== null}>
+        <span className="companion-rail__title">YOUR PACK</span>
+        {(Object.entries(COMPANIONS) as [CompanionId, typeof COMPANIONS[CompanionId]][]).map(([id, model], index) => (
+          <button
+            key={id}
+            type="button"
+            className={`companion-card ${companion === id ? 'is-selected' : ''}`}
+            aria-label={`Choose ${model.label} dog`}
+            aria-pressed={companion === id}
+            disabled={!companionReady || entering || switching !== null}
+            onClick={() => void selectCompanion(id)}
+          >
+            <span className="companion-card__number">0{index + 1}</span>
+            <span className={`companion-card__portrait companion-card__portrait--${id}`}><img src={model.portrait} alt="" /></span>
+            <span className="companion-card__name">{switching === id ? 'LOADING…' : model.label}</span>
+            {companion === id && <span className="companion-card__selected" aria-hidden="true">✓</span>}
+          </button>
+        ))}
+        <span className="companion-rail__hint"><kbd>X</kbd> SKILLS</span>
+      </nav>
+      <div className="companion-switch-status" role="status" aria-live="polite">
+        {switchError || (switching ? `Waking up ${COMPANIONS[switching].label}…` : !companionReady ? 'Waking up your companion…' : '')}
       </div>
       <div className="hub-companion">
         <div className="hub-companion-label">

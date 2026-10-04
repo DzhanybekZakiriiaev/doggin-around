@@ -24,7 +24,10 @@ export type FaceAppearanceManifest = {
   files: Record<
     "splats" | "restPositions" | "faces" | "faceIds" | "weights",
     string
-  > & { restTransforms?: string }
+  > & {
+    restTransforms?: string
+    headLook?: string
+  }
   clips: { name: string; duration: number; times: string; positions: string }[]
   mouth: { face: number; barycentric: [number, number, number] }
   gaitCadence: GaitCadence
@@ -65,6 +68,8 @@ export function parseFaceManifest(value: unknown): FaceAppearanceManifest {
       throw new Error(`Missing face appearance file: ${key}`)
   if (files.restTransforms !== undefined && !path(files.restTransforms))
     throw new Error("Invalid rest transform file")
+  if (files.headLook !== undefined && !path(files.headLook))
+    throw new Error("Invalid head look file")
   if (!Array.isArray(manifest.clips) || manifest.clips.length === 0)
     throw new Error("Missing baked animation clips")
   const names = new Set<string>()
@@ -443,9 +448,11 @@ export class FaceAppearance {
       return
     this.deformation.updatePositions(positions)
     if (positions !== this.vertexPositions) this.vertexPositions.set(positions)
-    this.mesh.geometry.getAttribute("position").needsUpdate = true
-    this.mesh.geometry.computeVertexNormals()
-    this.mesh.geometry.computeBoundingSphere()
+    if (this.mesh.visible) {
+      this.mesh.geometry.getAttribute("position").needsUpdate = true
+      this.mesh.geometry.computeVertexNormals()
+      this.mesh.geometry.computeBoundingSphere()
+    }
     const texture = this.textures[2]
     const textureData = texture.image.data as Float32Array
     textureData.set(this.deformation.data)
@@ -453,8 +460,11 @@ export class FaceAppearance {
     this.splats.needsUpdate = true
   }
 
-  getMouthPosition(target: THREE.Vector3): THREE.Vector3 {
-    return this.mouthAtPositions(this.vertexPositions, target)
+  getMouthPosition(
+    target: THREE.Vector3,
+    positions = this.vertexPositions,
+  ): THREE.Vector3 {
+    return this.mouthAtPositions(positions, target)
   }
 
   sampleMouthPosition(

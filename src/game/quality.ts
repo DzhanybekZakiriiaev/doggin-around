@@ -16,9 +16,9 @@ const TIERS: Tier[] = [
   { pixelRatio: 1.5, splats: 2_500_000, maxStdDev: Math.sqrt(8) },
   { pixelRatio: 1, splats: 1_500_000, maxStdDev: Math.sqrt(8) },
   { pixelRatio: 1, splats: 800_000, maxStdDev: Math.sqrt(7) },
-  { pixelRatio: 0.85, splats: 500_000, maxStdDev: Math.sqrt(6) },
-  { pixelRatio: 0.7, splats: 300_000, maxStdDev: Math.sqrt(6) },
-  { pixelRatio: 0.6, splats: 180_000, maxStdDev: Math.sqrt(5) },
+  { pixelRatio: 1, splats: 500_000, maxStdDev: Math.sqrt(6) },
+  { pixelRatio: 0.85, splats: 300_000, maxStdDev: Math.sqrt(6) },
+  { pixelRatio: 0.7, splats: 180_000, maxStdDev: Math.sqrt(5) },
   { pixelRatio: 0.5, splats: 100_000, maxStdDev: Math.sqrt(5) },
 ];
 
@@ -29,7 +29,7 @@ const MAX_SPLAT_RADIUS = 0.12;
 /** The largest on-screen splat radius (pixels) for a frame `height` pixels tall. */
 export const splatRadiusCap = (height: number) => Math.round(MAX_SPLAT_RADIUS * height);
 
-const TOO_SLOW_FPS = 45;
+const TOO_SLOW_FPS = 55;
 const FAST_ENOUGH_FPS = 57;
 const SETTLE_SECONDS = 1.5; // ignore frames right after a change while LoD and sorting catch up
 
@@ -40,6 +40,8 @@ export class AdaptiveQuality {
   private frames = 0;
   private settle = SETTLE_SECONDS;
   private fastWindows = 0;
+  private slowFrames = 0
+  private upgradeDelay = 12
 
   constructor(
     private readonly renderer: THREE.WebGLRenderer,
@@ -47,8 +49,8 @@ export class AdaptiveQuality {
   ) {
     this.softwareRenderer = /basic render|swiftshader|llvmpipe|software/i.test(rendererName(renderer));
     this.tier = this.softwareRenderer ? TIERS.length - 2 : 1;
-    // Without a GPU the splat sort and the rasterizer share the CPU, so sort at most ~30 times a second.
-    if (this.softwareRenderer) spark.minSortIntervalMs = 33;
+    // Update poses every frame and sort depth at most 30 times per second.
+    spark.minSortIntervalMs = 33
     this.apply();
   }
 
@@ -63,26 +65,37 @@ export class AdaptiveQuality {
     this.elapsed = 0;
     this.frames = 0;
     this.fastWindows = 0;
+    this.slowFrames = 0
+    this.upgradeDelay = 12
   }
 
   /** Feed every frame's duration; returns the measured fps once per second, otherwise undefined. */
   update(frameSeconds: number): number | undefined {
+    if (!Number.isFinite(frameSeconds) || frameSeconds <= 0 || frameSeconds > 0.25) return undefined
+    this.upgradeDelay = Math.max(0, this.upgradeDelay - frameSeconds)
     if (this.settle > 0) {
       this.settle -= frameSeconds;
       return undefined;
     }
     this.frames++;
+    if (frameSeconds > 1 / 30) this.slowFrames++
     this.elapsed += frameSeconds;
     if (this.elapsed < 1) return undefined;
 
     const fps = this.frames / this.elapsed;
+    const stuttering = this.slowFrames / this.frames > 0.08
     this.frames = 0;
+    this.slowFrames = 0
     this.elapsed = 0;
-    if (fps < TOO_SLOW_FPS && this.tier < TIERS.length - 1) {
+    if ((fps < TOO_SLOW_FPS || stuttering) && this.tier < TIERS.length - 1) {
+      this.upgradeDelay = 30
       this.setTier(this.tier + 1);
-    } else if (fps > FAST_ENOUGH_FPS && this.tier > 0) {
+    } else if (fps > FAST_ENOUGH_FPS && !stuttering && this.upgradeDelay === 0 && this.tier > 0) {
       // Only step up after a few comfortable seconds, so it doesn't oscillate.
-      if (++this.fastWindows >= 3) this.setTier(this.tier - 1);
+      if (++this.fastWindows >= 8) {
+        this.upgradeDelay = 12
+        this.setTier(this.tier - 1)
+      }
     } else {
       this.fastWindows = 0;
     }

@@ -3,7 +3,8 @@ import { SparkRenderer } from '@sparkjsdev/spark';
 import * as THREE from 'three';
 import { Footsteps, OneShot } from './audio';
 import { Biscuit } from './biscuit';
-import { DOG_ACTIONS, type DogAction } from './dog/dog';
+import { type DogAction } from './dog/dog'
+import { COMPANIONS, type CompanionId } from './companions'
 import { Doorway } from './door';
 import { EmoteWheel, type WheelSlot } from './emote-wheel';
 import { Fire } from './fire';
@@ -70,17 +71,6 @@ const OBJECTIVES: Record<QuestStage, (gathered: number) => string> = {
   fire: () => 'The fire’s catching…',
   complete: () => 'Home, dry and warm',
 };
-// The emote wheel (X), clockwise from the top: his tricks (his own clips, Larry's backflip and dig among
-// them) and the two things you do with him.
-const TRICKS: DogAction[] = ['sit', 'bark', 'spin', 'backflip', 'jump', 'playbow', 'paw', 'dig', 'wag', 'sniff'];
-const WHEEL_SLOTS: WheelSlot[] = [
-  ...TRICKS.map((name) => {
-    const action = DOG_ACTIONS.find((candidate) => candidate.name === name)!;
-    return { id: name, label: action.label, icon: action.icon };
-  }),
-  { id: 'pet', label: 'Pet', icon: '♥' },
-  { id: 'come', label: 'Come here', icon: '↩' },
-];
 
 /** Asked for from further off than this, "dig!" is just the trick, not the quest's dig. */
 const DIG_RANGE = 4;
@@ -131,6 +121,7 @@ export class Game {
   /** Hold F: spoken commands (ElevenLabs Scribe, then the keyword parser). */
   readonly voice: DogVoice;
   private interactionsBeforeWheel = true;
+  private pointerLockedBeforeWheel = false
 
   mode: 'hidden' | 'showcase' | 'play' = 'play';
   resolution: string;
@@ -201,7 +192,7 @@ export class Game {
     this.hands.setAspect(this.camera.aspect);
     this.interactions = new Interactions(this.ui.prompt);
     this.transition = new ComicTransition(this.ui.transition);
-    this.wheel = new EmoteWheel(this.layer, WHEEL_SLOTS, (slot) => this.useWheel(slot), () => this.wheelClosed());
+    this.wheel = new EmoteWheel(this.layer, [], (slot) => this.useWheel(slot), () => this.wheelClosed())
     this.biscuit = new Biscuit(this.renderer, this.physics);
     this.scene.add(this.biscuit.group);
     this.voice = new DogVoice(this.layer, {
@@ -533,6 +524,12 @@ export class Game {
     this.biscuit.spin(radians);
   }
 
+  async selectCompanion(id: CompanionId) {
+    if (this.mode !== 'showcase' || this.leap) return false
+    this.wheel.hide()
+    return this.biscuit.selectCompanion(id)
+  }
+
   petDog() {
     this.biscuit.wag();
   }
@@ -628,6 +625,11 @@ export class Game {
 
   /** Puts the showcase render over `element`'s rectangle (called every frame while showing). */
   private placeShowcase() {
+    const wide = this.biscuit.action === 'backflip' ? 46 : ['gangnam', 'beg'].includes(this.biscuit.action) ? 36 : 28
+    this.showcaseCamera.fov = THREE.MathUtils.lerp(this.showcaseCamera.fov, wide, 0.12)
+    const frameScale = Math.tan(THREE.MathUtils.degToRad(this.showcaseCamera.fov / 2)) / Math.tan(THREE.MathUtils.degToRad(14))
+    this.showcaseCamera.lookAt(0, 0.4 * frameScale, 0)
+    this.showcaseCamera.updateProjectionMatrix()
     const rect = this.showcaseEl?.getBoundingClientRect();
     if (!rect || rect.width < 2 || rect.height < 2) return false;
     const style = this.canvas.style;
@@ -883,22 +885,36 @@ export class Game {
 
   /** Opens the wheel next to Biscuit on screen (in the middle if he's out of view). */
   private openWheel() {
-    if (this.wheel.isOpen || !this.player.inputEnabled || this.hands.busy || !this.biscuit.group.visible) return;
+    const showcase = this.mode === 'showcase' && !this.leap
+    if (this.wheel.isOpen || !this.biscuit.isReady || (!showcase && !this.player.inputEnabled) || this.hands.busy || !this.biscuit.group.visible) return
+    const interactions: WheelSlot[] = [{ id: 'pet', label: 'Pet', icon: '♥' }]
+    if (!showcase) interactions.push({ id: 'come', label: 'Come here', icon: '↩' })
+    this.wheel.setItems([...this.biscuit.skills, ...interactions], COMPANIONS[this.biscuit.companionId].label)
     this.interactionsBeforeWheel = this.interactions.enabled;
+    this.pointerLockedBeforeWheel = document.pointerLockElement === this.canvas
     this.player.inputEnabled = false; // the mouse aims at the wheel now
     this.interactions.enabled = false;
+    if (showcase && this.showcaseEl) {
+      const rect = this.showcaseEl.getBoundingClientRect()
+      this.wheel.show({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
+      return
+    }
     const at = this.biscuit.back.clone().project(this.camera);
     const inView = at.z < 1 && Math.abs(at.x) < 1.1 && Math.abs(at.y) < 1.1;
     this.wheel.show(inView ? { x: ((at.x + 1) / 2) * window.innerWidth, y: ((1 - at.y) / 2) * window.innerHeight } : undefined);
+    if (this.pointerLockedBeforeWheel) document.exitPointerLock()
   }
 
   private wheelClosed() {
-    this.player.inputEnabled = true;
-    this.interactions.enabled = this.interactionsBeforeWheel;
+    this.player.inputEnabled = this.mode === 'play'
+    this.interactions.enabled = this.mode === 'play' && this.interactionsBeforeWheel
+    if (this.pointerLockedBeforeWheel && this.mode === 'play') this.capturePointer()
+    this.pointerLockedBeforeWheel = false
   }
 
   /** What was picked: a trick (the hands stay down, out of the way of watching it), petting him, or calling him over. */
   private useWheel(slot: WheelSlot) {
+    if (this.mode === 'showcase' && slot.id === 'pet') return void this.petDog()
     if (slot.id === 'come') return void this.callBiscuit();
     if (slot.id === 'pet') {
       if (this.carried.length) return this.showHint('Hands full · G to put things down first');
@@ -1135,17 +1151,25 @@ export class Game {
     });
     document.addEventListener('pointerlockchange', () => {
       const lost = document.pointerLockElement !== this.canvas;
+      if (lost && this.wheel.isOpen) return
       if (lost) this.wheel.hide(); // Esc
       if (lost && this.mode === 'play' && !this.settings.dragLook && this.questStage !== 'complete') this.ui.start?.classList.remove('hidden');
     });
     window.addEventListener('keydown', (event) => {
       if (event.repeat || event.target instanceof HTMLSelectElement || event.target instanceof HTMLInputElement) return;
-      if (this.mode !== 'play') return;
-      this.onKey?.(event);
+      if (this.mode !== 'play' && this.mode !== 'showcase') return
+      if (this.wheel.isOpen && ['ArrowLeft', 'ArrowRight'].includes(event.code)) {
+        event.preventDefault()
+        this.wheel.changePage(event.code === 'ArrowRight' ? 1 : -1)
+        return
+      }
+      if (this.mode === 'play') this.onKey?.(event)
       if (event.code === 'KeyX') {
+        event.preventDefault()
         if (this.wheel.isOpen) this.wheel.pick(); // the second press after a tap
         else this.openWheel();
       } else if (event.code === 'Escape') this.wheel.hide();
+      else if (this.mode !== 'play') return
       else if (event.code === 'KeyR' && this.player.inputEnabled) this.player.respawn();
       else if (event.code === 'KeyT') void this.throwCarried();
       else if (event.code === 'KeyG') void this.putDownCarried();

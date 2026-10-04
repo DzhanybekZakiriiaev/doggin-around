@@ -1,5 +1,24 @@
 node_modules/
 dist/
+test-results/
+playwright-report/
+
+# Keep training intermediates local and ship Wei's runtime assets
+public/models/tricolor-research/*
+!public/models/tricolor-research/dog-animated.glb
+!public/models/tricolor-research/manifest.json
+!public/models/tricolor-research/splats.ply
+!public/models/tricolor-research/rest.positions.bin
+!public/models/tricolor-research/faces.bin
+!public/models/tricolor-research/face-ids.bin
+!public/models/tricolor-research/face-weights.bin
+!public/models/tricolor-research/rest-transforms.bin
+!public/models/tricolor-research/head-look.json
+!public/models/tricolor-research/head-look.weights.bin
+!public/models/tricolor-research/head-look.bind-matrices.bin
+!public/models/tricolor-research/clips/
+public/models/tricolor-research/clips/*
+!public/models/tricolor-research/clips/*.bin
 
 # Secrets (World Labs, Gemini, ElevenLabs keys) - never commit, never ship to the browser
 .env
@@ -25,6 +44,3 @@ worlds/out/**/pano.png
 .DS_Store
 Thumbs.db
 
-# Browser test output
-test-results/
-playwright-report/

@@ -1601,6 +1601,60 @@ input:focus-visible {
   transition: transform 0.2s ease-out;
 }
 
+.hub-screen .hub-companion {
+  left: max(106px, 7.4vw);
+  width: 34%;
+}
+
+.companion-rail {
+  position: absolute;
+  z-index: 40;
+  left: 18px;
+  top: 46%;
+  display: grid;
+  width: 78px;
+  gap: 13px;
+  transform: translateY(-25%);
+}
+
+.companion-rail__title,
+.companion-rail__hint {
+  text-align: center;
+  color: var(--yellow);
+  font: 800 10px/1.2 "Barlow", sans-serif;
+  letter-spacing: .1em;
+}
+
+.companion-rail__hint { color: #c2c3bc }
+.companion-rail__hint kbd { color: var(--yellow) }
+
+.companion-card {
+  position: relative;
+  padding: 4px 4px 0;
+  border: 2px solid #64676b;
+  background: #14181f;
+  color: #e2dfd2;
+  cursor: pointer;
+  box-shadow: 4px 4px 0 #080b11;
+  transform: rotate(-3deg);
+  transition: transform .15s ease, border-color .15s ease;
+}
+
+.companion-card:nth-of-type(2) { transform: rotate(2deg) }
+.companion-card:hover:not(:disabled) { transform: translateX(4px) rotate(0) }
+.companion-card:focus-visible { outline: 3px solid #fff9e9; outline-offset: 4px }
+.companion-card.is-selected { border-color: var(--yellow); background: var(--yellow); color: #161920 }
+.companion-card:disabled { cursor: wait }
+.companion-card img { display: block; width: 100%; height: 75px; object-fit: cover; object-position: 50% 27% }
+.companion-card__portrait { display: block; overflow: hidden }
+.companion-card__portrait--tricolor img { transform: scale(2.2); transform-origin: 50% 20% }
+.companion-card__name { display: block; padding: 7px 0; font: 17px/1 "Bangers", Impact, sans-serif; letter-spacing: .04em }
+.companion-card__number { position: absolute; left: 0; top: -6px; padding: 3px 5px; background: #10151e; color: #fff9e9; font: 12px/1 "Bangers", sans-serif }
+.companion-card__selected { position: absolute; right: -7px; top: -7px; width: 21px; height: 21px; border: 2px solid #161920; border-radius: 50%; background: var(--yellow); color: #161920; font: 900 14px/17px system-ui }
+.companion-switch-status { position: absolute; z-index: 41; left: 110px; top: 87%; max-width: 350px; color: #fff9e9; font: 700 13px/1.4 "Barlow", sans-serif }
+.companion-switch-status:empty { display: none }
+.hub-screen--entering .companion-rail { opacity: 0; pointer-events: none }
+
 .hub-companion-label {
   position: absolute;
   z-index: 8;
@@ -1774,7 +1828,7 @@ input:focus-visible {
   position: absolute;
   z-index: 1;
   bottom: 7%;
-  width: 80%;
+  width: 76%;
   height: 95px;
   border: 2px solid rgba(255, 211, 34, 0.5);
   border-radius: 50%;
@@ -3005,7 +3059,7 @@ input:focus-visible {
   }
 
   .hub-screen .hub-companion {
-    width: 37%;
+    width: 34%;
   }
 }
 
@@ -3036,26 +3090,27 @@ input:focus-visible {
   content: "";
   position: absolute;
   inset: 0;
-  background: radial-gradient(circle, rgba(246, 241, 227, 0.2) 1.1px, transparent 1.6px) 0 0 / 10px 10px;
+  background: radial-gradient(circle, rgba(246, 241, 227, 0.2) 1.1px, transparent 1.6px) 0 0 / 10px 10px, var(--grain-tile) 0 0 / 180px 180px;
   mask-image: radial-gradient(ellipse at 62% 52%, transparent 30%, black 95%);
 }
 
 .hub-texture::after {
   content: "";
   position: absolute;
-  inset: 0;
-  background-image: var(--rain-tile), var(--rain-tile), var(--grain-tile);
-  background-size: 220px 220px, 340px 340px, 180px 180px;
+  inset: -220px 0;
+  background-image: var(--rain-tile);
+  background-size: 220px 220px;
   opacity: 0.45;
+  will-change: transform;
   animation: hub-rain 1.1s linear infinite;
 }
 
 @keyframes hub-rain {
   from {
-    background-position: 0 0, 0 0, 0 0;
+    transform: translate3d(0, 0, 0);
   }
   to {
-    background-position: -40px 220px, -62px 340px, 0 0;
+    transform: translate3d(0, 220px, 0);
   }
 }
 
@@ -3088,18 +3143,26 @@ input:focus-visible {
   inset: 0;
   z-index: 3;
   pointer-events: none;
-  background-image: var(--rain-tile), var(--rain-tile);
-  background-size: 260px 260px, 400px 400px;
+  overflow: hidden;
   opacity: 0.6;
+}
+
+.portal-rain::before {
+  content: "";
+  position: absolute;
+  inset: -260px 0;
+  background-image: var(--rain-tile);
+  background-size: 260px 260px;
+  will-change: transform;
   animation: portal-rain 0.55s linear infinite;
 }
 
 @keyframes portal-rain {
   from {
-    background-position: 0 0, 0 0;
+    transform: translate3d(0, 0, 0);
   }
   to {
-    background-position: -48px 260px, -72px 400px;
+    transform: translate3d(0, 260px, 0);
   }
 }
 
@@ -3110,7 +3173,7 @@ input:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   .hub-texture::after,
   .hub-screen::after,
-  .portal-rain {
+  .portal-rain::before {
     animation: none;
   }
 }

@@ -10,6 +10,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "typecheck": "tsc",
+    "test:e2e": "playwright test",
     "worlds": "node scripts/worldlabs.mjs",
     "pano": "node scripts/pano-fix.mjs",
     "hands-style": "node scripts/hands-style.mjs",
@@ -17,9 +18,9 @@
     "comic-page": "node scripts/comic-page.mjs",
     "comic-transition": "node scripts/comic-transition.mjs",
     "pipeline-art": "node scripts/pipeline-art.mjs",
-    "dog-clips": "node --experimental-transform-types --no-warnings=ExperimentalWarning scripts/dog-clips.mjs",
+    "dog-clips": "node --experimental-strip-types --no-warnings=ExperimentalWarning scripts/dog-clips.mjs",
     "voice-check": "node --experimental-strip-types --no-warnings=ExperimentalWarning scripts/voice-check.ts",
-    "test:voice": "node --experimental-strip-types --test scripts/scribe-token.test.ts && playwright test"
+    "test:voice": "node --experimental-strip-types --test scripts/scribe-token.test.ts && playwright test tests/voice.spec.ts"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.21.0",
