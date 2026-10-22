@@ -1003,8 +1003,9 @@ export default function App() {
   // Into panel 1: Biscuit leaps in, the panel grows to fill the screen, the game starts behind it (already
   // loaded, at the same view the panel is drawn from), and the panel dissolves into it.
   // Out of panel 1 and into the game: the panel fills the screen, then the world pipeline plays in the middle
-  // (6 s: side views, panorama, the world) while, behind it, the panel dissolves through the painted
-  // in-betweens into a capture of the game's opening view; once the pipeline's done and the live game has
+  // (every stage of docs/scene-generation.md, as long as the dog's pipeline before page 2) while, behind it,
+  // the panel dissolves through the painted in-betweens into a capture of the game's opening view; once the
+  // pipeline's done and the live game has
   // really drawn the yard, it all fades into the identical live picture.
   const enterPanel = async (panel: HTMLElement) => {
     if (!game) return;

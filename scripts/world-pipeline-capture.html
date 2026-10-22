@@ -1,0 +1,300 @@
+<!doctype html>
+<!--
+  Captures the stills for the world pipeline card (src/WorldPipeline.tsx) from the real yard world: its
+  depth panorama (rendered from the collider at the panorama camera), its point cloud (the panorama's
+  colours placed at that depth), the same cloud seen from off-centre with the never-seen areas showing,
+  and the splat from there. Dev only: open http://localhost:5173/scripts/world-pipeline-capture.html with
+  a server that accepts POST /save/<name> on port 5199 and writes into public/world-pipeline/.
+-->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>World pipeline capture</title>
+    <style>
+      body { margin: 0; background: #111; color: #ddd; font: 12px/1.4 ui-monospace, Consolas, monospace; }
+      canvas { display: block; max-width: 100%; }
+      pre { margin: 8px; }
+    </style>
+  </head>
+  <body>
+    <pre id="log"></pre>
+    <script type="module">
+      import * as THREE from 'three';
+      import RAPIER from '@dimforge/rapier3d-compat';
+      import { SparkRenderer } from '@sparkjsdev/spark';
+      import { MarbleWorld } from '/src/game/world.ts';
+      import { worldRuns } from '/src/game/worlds-index.ts';
+      import { LEVEL_RUNS } from '/src/game/levels.ts';
+      import { splatRadiusCap } from '/src/game/quality.ts';
+
+      const params = new URLSearchParams(location.search);
+      const only = params.get('only')?.split(',');
+      const want = (name) => !only || only.includes(name);
+      const logEl = document.getElementById('log');
+      const log = (message) => {
+        logEl.textContent += `${message}\n`;
+        console.log(message);
+      };
+      // Timers rather than animation frames: those stop while the page is hidden.
+      const frames = (count) => new Promise((resolve) => setTimeout(resolve, count * 16));
+      async function save(name, canvas, quality = 0.86) {
+        const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
+        const response = await fetch(`http://127.0.0.1:5199/save/${name}`, { method: 'POST', body: blob });
+        log(`${name}: ${response.ok ? 'saved' : `failed (${response.status})`}`);
+      }
+      async function imageData(url) {
+        const image = await createImageBitmap(await (await fetch(url)).blob());
+        const canvas = Object.assign(document.createElement('canvas'), { width: image.width, height: image.height });
+        const context = canvas.getContext('2d');
+        context.drawImage(image, 0, 0);
+        return context.getImageData(0, 0, image.width, image.height);
+      }
+
+      // ---------- The world, as the game sets it up ----------
+
+      const W = 1280;
+      const H = 720;
+      const FOV = 75;
+      const canvas = document.body.insertBefore(document.createElement('canvas'), logEl);
+      const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, preserveDrawingBuffer: true });
+      renderer.setPixelRatio(1);
+      renderer.setSize(W, H, false);
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x1b2028);
+      const spark = new SparkRenderer({ renderer, covSplats: true, accumExtSplats: true });
+      spark.lodSplatCount = 2_500_000;
+      spark.maxPixelRadius = splatRadiusCap(H);
+      scene.add(spark);
+
+      await RAPIER.init();
+      const physics = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
+      const run = worldRuns.find((candidate) => candidate.id === LEVEL_RUNS.yard);
+      const world = await MarbleWorld.load(run, 'full_res', physics, log);
+      scene.add(world.root);
+      world.root.updateMatrixWorld(true);
+      const origin = world.panoOrigin;
+      log(`panorama camera at ${origin.toArray().map((v) => v.toFixed(2))}`);
+
+      // ---------- Depth at the panorama camera: six 90° faces, from the collider ----------
+
+      const N = 512;
+      const SKY = 40; // metres: where rays that hit nothing are put
+      const target = new THREE.WebGLRenderTarget(N, N, { type: THREE.FloatType });
+      const distance = new THREE.ShaderMaterial({
+        uniforms: { origin: { value: origin } },
+        vertexShader: `varying vec3 vWorld;
+          void main() { vec4 w = modelMatrix * vec4(position, 1.0); vWorld = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
+        fragmentShader: `uniform vec3 origin; varying vec3 vWorld;
+          void main() { gl_FragColor = vec4(distance(vWorld, origin), 0.0, 0.0, 1.0); }`,
+        side: THREE.DoubleSide,
+      });
+      const FACES = [
+        { dir: [0, 0, -1], up: [0, 1, 0] },
+        { dir: [1, 0, 0], up: [0, 1, 0] },
+        { dir: [0, 0, 1], up: [0, 1, 0] },
+        { dir: [-1, 0, 0], up: [0, 1, 0] },
+        { dir: [0, 1, 0], up: [0, 0, 1] },
+        { dir: [0, -1, 0], up: [0, 0, -1] },
+      ];
+      const depthScene = new THREE.Scene();
+      depthScene.overrideMaterial = distance;
+      depthScene.add(world.root);
+      world.splat.visible = false;
+      world.colliderView.visible = true;
+      renderer.setClearColor(0x000000, 0);
+      const faces = FACES.map(({ dir, up }) => {
+        const camera = new THREE.PerspectiveCamera(90, 1, 0.01, 500);
+        camera.position.copy(origin);
+        camera.up.set(...up);
+        camera.lookAt(origin.clone().add(new THREE.Vector3(...dir)));
+        camera.updateMatrixWorld(true);
+        renderer.setRenderTarget(target);
+        renderer.clear();
+        renderer.render(depthScene, camera);
+        const rgba = new Float32Array(N * N * 4);
+        renderer.readRenderTargetPixels(target, 0, 0, N, N, rgba);
+        const depth = new Float32Array(N * N);
+        for (let k = 0; k < N * N; k++) depth[k] = rgba[k * 4];
+        return { dir: new THREE.Vector3(...dir), quaternion: camera.quaternion.clone(), inverse: camera.quaternion.clone().invert(), depth };
+      });
+      renderer.setRenderTarget(null);
+      scene.add(world.root);
+      world.splat.visible = true;
+      world.colliderView.visible = false;
+      log('depth faces rendered');
+
+      const local = new THREE.Vector3();
+      /** Distance along `dir` from the panorama camera (0 where nothing was hit). */
+      function depthAlong(dir) {
+        let best = faces[0];
+        for (const face of faces) if (face.dir.dot(dir) > best.dir.dot(dir)) best = face;
+        local.copy(dir).applyQuaternion(best.inverse);
+        const x = local.x / -local.z;
+        const y = local.y / -local.z;
+        const i = Math.min(N - 1, Math.max(0, Math.floor(((x + 1) / 2) * N)));
+        const j = Math.min(N - 1, Math.max(0, Math.floor(((y + 1) / 2) * N)));
+        return best.depth[j * N + i];
+      }
+
+      // ---------- depth.jpg: the depth panorama, colour-mapped (turbo, by inverse depth) ----------
+
+      function turbo(t) {
+        const r = 0.13572138 + t * (4.6153926 + t * (-42.66032258 + t * (132.13108234 + t * (-152.94239396 + t * 59.28637943))));
+        const g = 0.09140261 + t * (2.19418839 + t * (4.84296658 + t * (-14.18503333 + t * (4.27729857 + t * 2.82956604))));
+        const b = 0.1066733 + t * (12.64194608 + t * (-60.58204836 + t * (110.36276771 + t * (-89.90310912 + t * 27.34824973))));
+        return [r, g, b].map((c) => Math.round(255 * Math.min(1, Math.max(0, c))));
+      }
+      const direction = (lon, lat) =>
+        new THREE.Vector3(Math.cos(lat) * Math.sin(lon), Math.sin(lat), -Math.cos(lat) * Math.cos(lon));
+      if (want('depth')) {
+        const PW = 1600;
+        const PH = 800;
+        const out = Object.assign(document.createElement('canvas'), { width: PW, height: PH });
+        const context = out.getContext('2d');
+        const pixels = context.createImageData(PW, PH);
+        // Log depth, near warm to far cool: the yard's interesting range (5–15 m) gets most of the colours.
+        const NEAR = 1.4;
+        const FAR = 25;
+        for (let v = 0; v < PH; v++) {
+          const lat = Math.PI / 2 - ((v + 0.5) / PH) * Math.PI;
+          for (let u = 0; u < PW; u++) {
+            const lon = ((u + 0.5) / PW) * 2 * Math.PI - Math.PI;
+            const d = depthAlong(direction(lon, lat));
+            const k = (v * PW + u) * 4;
+            const t = 1 - Math.log(d / NEAR) / Math.log(FAR / NEAR);
+            const [r, g, b] = d > 0 ? turbo(Math.min(1, Math.max(0, t))) : [16, 18, 40];
+            pixels.data[k] = r;
+            pixels.data[k + 1] = g;
+            pixels.data[k + 2] = b;
+            pixels.data[k + 3] = 255;
+          }
+        }
+        context.putImageData(pixels, 0, 0);
+        await save('depth.jpg', out);
+      }
+
+      // ---------- The point cloud: every face pixel at its depth, in the panorama's colour ----------
+
+      const pano = await imageData('/world-pipeline/pano.jpg');
+      // Off-centre, each point a good deal wider than the gap to its neighbours, so only real holes stay open
+      // (not the spaces between dots on ground seen at a slant); the overview keeps them dots.
+      const HOLE_POINT_SIZE = Number(params.get('size') ?? 2.4);
+      const OVERVIEW_POINT_SIZE = Number(params.get('overviewSize') ?? 1.2);
+      function cloud(withSky, POINT_SIZE) {
+        const positions = [];
+        const colors = [];
+        const sizes = [];
+        const spacing = Math.PI / 2 / N;
+        const dir = new THREE.Vector3();
+        for (const face of faces) {
+          for (let j = 0; j < N; j++) {
+            for (let i = 0; i < N; i++) {
+              const d0 = face.depth[j * N + i];
+              if (!d0 && !withSky) continue;
+              const d = d0 || SKY;
+              dir.set(((i + 0.5) / N) * 2 - 1, ((j + 0.5) / N) * 2 - 1, -1).normalize().applyQuaternion(face.quaternion);
+              positions.push(origin.x + dir.x * d, origin.y + dir.y * d, origin.z + dir.z * d);
+              const lon = Math.atan2(dir.x, -dir.z);
+              const lat = Math.asin(Math.max(-1, Math.min(1, dir.y)));
+              const u = Math.min(pano.width - 1, Math.floor((lon / (2 * Math.PI) + 0.5) * pano.width));
+              const v = Math.min(pano.height - 1, Math.floor((0.5 - lat / Math.PI) * pano.height));
+              const p = (v * pano.width + u) * 4;
+              colors.push(pano.data[p] / 255, pano.data[p + 1] / 255, pano.data[p + 2] / 255);
+              sizes.push(d * spacing * POINT_SIZE);
+            }
+          }
+        }
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        geometry.setAttribute('pcolor', new THREE.Float32BufferAttribute(colors, 3));
+        geometry.setAttribute('psize', new THREE.Float32BufferAttribute(sizes, 1));
+        return geometry;
+      }
+      const pointMaterial = new THREE.ShaderMaterial({
+        uniforms: { scale: { value: H / (2 * Math.tan(THREE.MathUtils.degToRad(FOV / 2))) }, minSize: { value: 1.5 } },
+        vertexShader: `attribute vec3 pcolor; attribute float psize; uniform float scale; uniform float minSize; varying vec3 vColor;
+          void main() {
+            vColor = pcolor;
+            vec4 mv = modelViewMatrix * vec4(position, 1.0);
+            gl_Position = projectionMatrix * mv;
+            gl_PointSize = max(minSize, psize * scale / -mv.z);
+          }`,
+        fragmentShader: `varying vec3 vColor; void main() { gl_FragColor = vec4(vColor, 1.0); }`,
+      });
+      const camera = new THREE.PerspectiveCamera(FOV, W / H, 0.05, 1000);
+      const place = (position, target) => {
+        camera.position.copy(origin).add(new THREE.Vector3(...position));
+        camera.lookAt(origin.clone().add(new THREE.Vector3(...target)));
+        camera.updateMatrixWorld(true);
+      };
+      const pointScene = new THREE.Scene();
+
+      // points.jpg: the cloud from above and behind the panorama camera, so it reads as 3D.
+      const [ox, oy, oz, tx, ty, tz] = (params.get('overview') ?? '0,4,2.5,0,-0.6,-7').split(',').map(Number);
+      if (want('points')) {
+        const points = new THREE.Points(cloud(false, OVERVIEW_POINT_SIZE), pointMaterial);
+        pointScene.add(points);
+        pointScene.background = new THREE.Color(0x0d1420);
+        pointMaterial.uniforms.minSize.value = 1;
+        place([ox, oy, oz], [tx, ty, tz]);
+        renderer.render(pointScene, camera);
+        await save('points.jpg', canvas);
+        pointScene.remove(points);
+        points.geometry.dispose();
+      }
+
+      // holes.jpg / splat.jpg / filled.jpg: a step off-centre. What the panorama never saw shows in magenta;
+      // filled is the cloud with those areas taken from the splat.
+      const [px, py, pz, qx, qy, qz] = (params.get('offcentre') ?? '2.6,0.1,-1.4,-0.6,0,-8.5').split(',').map(Number);
+      if (want('holes')) {
+        const points = new THREE.Points(cloud(true, HOLE_POINT_SIZE), pointMaterial);
+        pointScene.add(points);
+        pointScene.background = new THREE.Color(0xff2bd6);
+        pointMaterial.uniforms.minSize.value = 1.5;
+        place([px, py, pz], [qx, qy, qz]);
+        renderer.render(pointScene, camera);
+        await save('holes.jpg', canvas);
+        const holes = new ImageData(new Uint8ClampedArray(W * H * 4), W, H);
+        const gl = renderer.getContext();
+        gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, holes.data);
+
+        // The splat from the same spot, once Spark has sorted and picked its level of detail for this view.
+        for (let n = 0; n < 120; n++) {
+          renderer.render(scene, camera);
+          await frames(1);
+        }
+        renderer.render(scene, camera);
+        await save('splat.jpg', canvas);
+        const splat = new ImageData(new Uint8ClampedArray(W * H * 4), W, H);
+        gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, splat.data);
+
+        // readPixels rows run bottom-up; both images do, so compose them as they are and flip once.
+        const filled = Object.assign(document.createElement('canvas'), { width: W, height: H });
+        const context = filled.getContext('2d');
+        const out = context.createImageData(W, H);
+        let hole = 0;
+        for (let y = 0; y < H; y++) {
+          for (let x = 0; x < W; x++) {
+            const from = (y * W + x) * 4;
+            const to = ((H - 1 - y) * W + x) * 4;
+            const r = holes.data[from];
+            const g = holes.data[from + 1];
+            const b = holes.data[from + 2];
+            const isHole = r > 240 && g < 60 && b > 200;
+            if (isHole) hole++;
+            const source = isHole ? splat.data : holes.data;
+            out.data[to] = source[from];
+            out.data[to + 1] = source[from + 1];
+            out.data[to + 2] = source[from + 2];
+            out.data[to + 3] = 255;
+          }
+        }
+        context.putImageData(out, 0, 0);
+        await save('filled.jpg', filled);
+        log(`never seen from the panorama: ${((hole / (W * H)) * 100).toFixed(1)}% of the off-centre view`);
+        pointScene.remove(points);
+      }
+      log('done');
+    </script>
+  </body>
+</html>

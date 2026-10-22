@@ -1,0 +1,28 @@
+<!doctype html>
+<!--
+  The world pipeline card (src/WorldPipeline.tsx) on its own, over a portal frame, to watch or tune it without
+  playing through to panel 1. Dev only: http://localhost:5173/scripts/world-pipeline-preview.html (reload to replay).
+-->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>World pipeline preview</title>
+    <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@1,800;1,900&family=Inter:wght@600;800&display=swap" rel="stylesheet" />
+    <style>
+      :root { --ink: #0a0b0f; --cream: #fff9e9; --yellow: #ffd322; --red: #f04431; }
+      body { margin: 0; height: 100vh; background: #1b2028 url(/comic/transition/blend-3.jpg) center / cover; overflow: hidden; }
+    </style>
+  </head>
+  <body>
+    <div id="root" style="position: fixed; inset: 0"></div>
+    <script type="module">
+      import { createElement } from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { WorldPipeline } from '/src/WorldPipeline.tsx';
+      createRoot(document.getElementById('root')).render([
+        createElement('i', { className: 'wp-dim', key: 'dim' }),
+        createElement(WorldPipeline, { key: 'card' }),
+      ]);
+    </script>
+  </body>
+</html>
